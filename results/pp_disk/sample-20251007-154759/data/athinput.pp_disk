@@ -1,0 +1,54 @@
+<comment>
+problem   = A one-dimensional, axisymmetric Papaloizou–Pringle disk with constant angular momentum.
+configure = --prob=pp_disk
+
+<job>
+problem_id = pp_disk
+
+<output1>
+file_type = tab
+variable  = prim
+dt        = 26.9
+
+#<output2>
+#file_type = tab
+#variable  = user_out_var
+#dt        = 26.9
+
+<time>
+cfl_number = 0.4
+nlim       = -1
+tlim       = 2690 # 85.1 # 8.51
+ncycle_out = 100    # interval for stdout summary info
+
+<mesh>
+nx1    = 100        # number of cells in r-direction
+x1min  = 10.0        # minimum r
+x1max  = 200.0       # maximum r
+ix1_bc = outflow    # inner boundary
+ox1_bc = outflow    # outer boundary
+
+nx2    = 1                   # number of cells in theta-direction
+x2min  = -1.0                # 1.0707963267948966  # minimum theta (pi/2 - 1/2)
+x2max  = 1                   # 2.0707963267948966  # maximum theta (pi/2 + 1/2)
+ix2_bc = periodic            # upper boundary
+ox2_bc = periodic            # lower boundary
+
+nx3    = 1         # number of cells in phi-direction
+x3min  = -1.0      # minimum phi
+x3max  = 1.0       # maximum phi
+ix3_bc = periodic  # clockwise boundary
+ox3_bc = periodic  # counterclockwise boundary
+
+<hydro>
+gamma = 1.6666666666666667
+
+<problem>
+MBH = 21.2          # mass of the black hole
+l_0 = 6.26e6        # 2.95e5 SUN r_g # 1.0e11 # length scale in cm
+T = 1.0e8           # temperature scale
+rhoSc = 1.0e-10     # density scale (in g*cm^-3)
+rho_floor = 1.0e-5  # back-density
+disk_rho_m = 1.0
+disk_xm = 100       # disk center
+disk_Const = 0.43   # disk profile constant
