@@ -1,5 +1,5 @@
 <comment>
-problem   = One-dimensional, axisymmetric Papaloizou–Pringle disk with constant angular momentum.
+problem   = accretion in radial direction
 configure = --prob=pp_disk
 
 <job>
@@ -25,8 +25,8 @@ ncycle_out = 100    # interval for stdout summary info
 nx1    = 100        # number of cells in r-direction
 x1min  = 10.0        # minimum r
 x1max  = 200.0       # maximum r
-ix1_bc = outflow    # inner boundary
-ox1_bc = outflow    # outer boundary
+ix1_bc = user    # inner boundary
+ox1_bc = user    # outer boundary
 
 nx2    = 1                   # number of cells in theta-direction
 x2min  = -1.0                # 1.0707963267948966  # minimum theta (pi/2 - 1/2)

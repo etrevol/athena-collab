@@ -1,0 +1,56 @@
+<comment>
+problem   = GR hydro accretion with Shakura-Sunyaev alpha-viscosity
+configure = --prob=pp_disk_2d_alpha_visc
+
+<job>
+problem_id = pp_disk
+
+<output1>
+file_type = tab
+variable  = prim
+dt        = 5
+
+<time>
+cfl_number = 0.4
+nlim       = -1
+tlim       = 1000
+integrator = vl2    # time integration algorithm
+xorder     = 2      # order of spatial reconstruction
+ncycle_out = 1      # interval for stdout summary info
+
+<mesh>
+nx1    = 128   # number of cells in r-direction
+x1min  = 3     # minimum r
+x1max  = 200   # maximum r
+ix1_bc = outflow   # inner boundary
+ox1_bc = outflow # outer boundary
+
+nx2    = 128                 # number of cells in phi-direction
+x2min  = 0.0                 # minimum phi
+x2max  = 6.2831853071795862  # maximum phi (2*pi)
+ix2_bc = periodic            # lower boundary
+ox2_bc = periodic            # upper boundary
+
+nx3    = 1         # number of cells in z-direction
+x3min  = -0.5      # minimum phi
+x3max  = 0.5       # maximum phi
+ix3_bc = periodic  # clockwise boundary
+ox3_bc = periodic  # counterclockwise boundary
+
+<hydro>
+gam = 1.667
+gamma = 1.667  # ratio of specific heats Gamma
+iso_sound_speed = 1.0  # not used for adiabatic EOS
+dfloor = 1.0e-8        # density floor
+pfloor = 1.0e-10       # pressure floor
+
+<problem>
+
+c = 3e10
+k = 10e8
+T = 1.0e8  
+rho_floor = 10e-6
+disk_xm = 27
+disk_Const = 0.43
+alpha = 0.0001  # Shakura-Sunyaev alpha parameter 0.01
+nu_iso = 0.0001

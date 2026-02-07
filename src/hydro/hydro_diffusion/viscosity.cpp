@@ -301,8 +301,7 @@ void HydroDiffusion::FaceXdy(const int k, const int j, const int il, const int i
                * (prim(IM2,k,j,i)/pco_->h2v(i) - prim(IM2,k,j,i-1)/pco_->h2v(i-1))
                / pco_->dx1v(i-1)
                // KGF: add the off-centered quantities first to preserve FP symmetry
-               + 0.5*(   (prim(IM1,k,j+1,i) + prim(IM1,k,j+1,i-1))
-                         - (prim(IM1,k,j-1,i) + prim(IM1,k,j-1,i-1)) )
+               + 0.5*((prim(IM1,k,j+1,i) + prim(IM1,k,j+1,i-1)) - (prim(IM1,k,j-1,i) + prim(IM1,k,j-1,i-1)))
                / pco_->h2f(i)
                / (pco_->dx2v(j-1) + pco_->dx2v(j));
     }
