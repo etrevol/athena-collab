@@ -263,6 +263,10 @@ class Mesh {
   TaskType sts_loc;
   Real muj, nuj, muj_tilde, gammaj_tilde;
   int nbtotal, nblocal, nbnew, nbdel;
+  
+  // Variables for tracking elapsed wall time and progress
+  clock_t start_time_cpu;
+  double start_time_wall;
 
   int step_since_lb;
   int turb_flag; // turbulence flag

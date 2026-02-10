@@ -66,3 +66,11 @@ meshtest.dat
 
 # compiled doxygen file
 doc/doxy*
+
+/scripts
+/materials
+/results
+.github
+.build_state
+.gitignore
+.gitmodules
