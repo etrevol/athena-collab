@@ -1,13 +1,16 @@
 #!/bin/bash
 set -e  # stop the script immediately if any command fails
 
-problem="disk_2d_visc" # acc_disk, disk_2d_visc
-input="disk_2d_visc"
-specification="-disk_2d_visc"
+problem="acc_disk_temp_visc" # acc_disk_grav, acc_disk_temp, disk_2d_visc, acc_disk_temp_visc
+input="acc_disk_temp_visc"
+specification="-acc_disk-POLY"
+
+use_mpi=0              # 1 = use MPI parallelization, 0 = single block (no MPI)
+num_mpi_procs=16       # Number of MPI processes
 
 show_progress="yes"
 
-project_directory="pp_disk_viscosity"
+project_directory="DEBUG"
 
 repo_directory=$(pwd)
 
@@ -16,9 +19,6 @@ timestamp=$(date +"%Y%m%d-%H%M%S")
 sample_directory="sample-${timestamp}${specification}"
 data_directory="data"
 materials_directory="materials"
-
-# Number of MPI processes, for 16 MeshBlocks (4x4), use up to 16 cores
-num_mpi_procs=16
 
 # Check if we need to recompile
 build_state_file=".build_state"
@@ -52,8 +52,13 @@ fi
 # 1. Configuration and Build (only if needed)
 if [ "$need_rebuild" = true ]; then
     echo "Configuring with problem: ${problem}"
-    python3 configure.py --prob "${problem}" --coord=cylindrical -mpi
-    # python3 configure.py --prob "${problem}" --coord=cartesian --coord=cylindrical
+    if [ "$use_mpi" -eq 1 ]; then
+        echo "MPI parallelization: ENABLED"
+        python3 configure.py --prob "${problem}" --coord=cylindrical -mpi
+    else
+        echo "MPI parallelization: DISABLED (single block mode)"
+        python3 configure.py --prob "${problem}" --coord=cylindrical
+    fi
 
     echo "Building..."
     make clean
@@ -74,8 +79,10 @@ mkdir -p "${results_directory}/${project_directory}/${sample_directory}/${materi
 # 3. Copy files to materials directory
 cp "${repo_directory}/inputs/hydro/athinput.${input}" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 cp "${repo_directory}/src/pgen/${problem}.cpp" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-# cp "${repo_directory}/scripts/vis1d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+
+cp "${repo_directory}/scripts/vis1d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 cp "${repo_directory}/scripts/vis2d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+cp "${repo_directory}/scripts/vishst.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 
 # 4. Change to the data directory
 cd "${results_directory}/${project_directory}/${sample_directory}/${data_directory}"
@@ -83,12 +90,21 @@ cd "${results_directory}/${project_directory}/${sample_directory}/${data_directo
 # 5. Clean up old files
 rm -f *.tab *.athdf *.athdf.xdmf *.hst
 
-# 6. Run Athena with MPI parallelization
-echo "Running with ${num_mpi_procs} MPI processes..."
-if [ "$show_progress" = "yes" ]; then
-    mpirun -np ${num_mpi_procs} "${repo_directory}/bin/athena" -p -i "../${materials_directory}/athinput.${input}"
+# 6. Run Athena
+if [ "$use_mpi" -eq 1 ]; then
+    echo "Running with ${num_mpi_procs} MPI processes..."
+    if [ "$show_progress" = "yes" ]; then
+        mpirun -np ${num_mpi_procs} "${repo_directory}/bin/athena" -p -i "../${materials_directory}/athinput.${input}"
+    else
+        mpirun -np ${num_mpi_procs} "${repo_directory}/bin/athena" -i "../${materials_directory}/athinput.${input}"
+    fi
 else
-    mpirun -np ${num_mpi_procs} "${repo_directory}/bin/athena" -i "../${materials_directory}/athinput.${input}"
+    echo "Running in single block mode (no MPI)..."
+    if [ "$show_progress" = "yes" ]; then
+        "${repo_directory}/bin/athena" -p -i "../${materials_directory}/athinput.${input}"
+    else
+        "${repo_directory}/bin/athena" -i "../${materials_directory}/athinput.${input}"
+    fi
 fi
 
 # 7. List results

@@ -2365,7 +2365,7 @@ void Mesh::OutputCycleDiagnostics() {
         
         static bool progress_initialized = false;
         if (!progress_initialized) {
-          for (int i = 0; i < 25; ++i) std::cout << '\n';
+          for (int i = 0; i < 1; ++i) std::cout << '\n';
           progress_initialized = true;
         }
 
