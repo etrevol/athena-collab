@@ -1,0 +1,58 @@
+<comment>
+problem   = Papaloizou-Pringle accretion disk with viscous diffusion
+configure = --prob=acc_disk --coord=cylindrical
+
+<job>
+problem_id = acc_disk
+
+<output1>
+file_type  = tab        # Table output format
+variable   = prim       # Output primitive variables (rho, v, p)
+dt         = 0.628318530718        # Output time step (every 0.1 orbit)
+dcycle     = -1         # Disable cycle-based output
+
+<time>
+cfl_number = 0.4        # CFL stability condition
+nlim       = -1         # No cycle limit
+tlim       = 94.2477796077      # Simulation duration
+integrator = vl2        # Van Leer predictor-corrector (2nd order)
+xorder     = 2          # Piecewise linear reconstruction
+ncycle_out = 10         # Console output every 10 cycles
+
+<mesh>
+# Radial direction (x1 = r)
+nx1    = 128             # Radial resolution
+x1min  = 0.001          # Inner boundary
+x1max  = 5.0            # Outer boundary
+x1rat  = 1.0            # Uniform spacing
+ix1_bc = outflow        # Inner boundary condition
+ox1_bc = outflow        # Outer boundary condition
+
+# Azimuthal direction (x2 = phi)
+nx2    = 128             # Azimuthal resolution
+x2min  = 0.0            # 0 radians
+x2max  = 6.283185307179586  # 2*pi radians
+ix2_bc = periodic       # Periodic in azimuth
+ox2_bc = periodic
+
+# Vertical direction (x3 = z)
+nx3    = 1              # Vertical resolution
+x3min  = -0.5
+x3max  = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+<meshblock>
+nx1 = 32                # MeshBlock size (for MPI parallelization)
+nx2 = 32
+nx3 = 1
+
+<hydro>
+gamma  = 1.33333333333  # Adiabatic index gamma = 5/3
+nu_iso = 0.00           # Kinematic viscosity
+dfloor = 1.0e-8         # Density floor
+pfloor = 1.0e-10        # Pressure floor
+
+<problem>
+# Papaloizou-Pringle disk parameters
+C       = 0.43          # Disk width parameter

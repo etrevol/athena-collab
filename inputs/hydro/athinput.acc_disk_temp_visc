@@ -1,0 +1,130 @@
+<comment>
+problem   = Thermally-Scaled Papaloizou-Pringle Accretion Disk with Spatially-Varying Viscosity
+configure = --prob=acc_disk_temp_visc --coord=cylindrical
+
+<job>
+problem_id = acc_disk_visc
+
+<output1>
+file_type  = tab        # Table output format for 1D/2D diagnostics
+variable   = prim       # Output primitive variables (rho, v, p)
+dt         = 1.01227e-03      # Output timestep (every 0.1 frames per orbit)
+dcycle     = -1         # Disable cycle-based output
+
+<output2>
+file_type  = hst        # History file (time series of global quantities)
+dt         = 1.01227e-03      # Output timestep (every 0.01 orbits for fine tracking)
+dcycle     = -1         # Disable cycle-based output
+
+<time>
+cfl_number = 0.4        # Strict CFL for stability during viscous shearing
+nlim       = -1         # No cycle limit
+tlim       = 5.06133e-01     # Total simulation duration (30 orbits)
+integrator = vl2        # Van Leer predictor-corrector (2nd order)
+xorder     = 2          # Piecewise linear reconstruction
+ncycle_out = 50         # Console output frequency
+
+<mesh>
+# Radial direction (x1 = r)
+nx1    = 128            # Increased radial resolution for better shock capturing
+x1min  = 0.563508            # Inner boundary (should be << r_inner)
+x1max  = 4.436492            # Outer boundary (should be >> r_outer)
+x1rat  = 1.0            # Uniform spacing
+ix1_bc = outflow        # Accretion sink at the inner boundary
+ox1_bc = outflow        # Free outflow at the outer boundary
+
+# Azimuthal direction (x2 = phi)
+nx2    = 128            # Azimuthal resolution for 2D mode growth
+x2min  = 0.0            
+x2max  = 6.28318530718  # 2*pi
+ix2_bc = periodic       
+ox2_bc = periodic
+
+# Vertical direction (x3 = z)
+nx3    = 1              # 2D Simulation (equatorial plane)
+x3min  = -0.5
+x3max  = 0.5
+ix3_bc = periodic
+ox3_bc = periodic
+
+<meshblock>
+nx1 = 64                # MeshBlock size (for MPI parallelization)
+nx2 = 64                # Recommended: 32-64 cells per dimension
+nx3 = 1
+
+<hydro>
+gamma  = 1.3            # Adiabatic index
+dfloor = 1.0e-8         # Density vacuum floor
+pfloor = 1.0e-10        # Pressure vacuum floor
+
+<problem>
+# Geometric configuration
+r_center = 1.0          # Dimensionless location of the disk center (R_0/r_0)
+C_prime  = 0.2          # Geometric thickness parameter (< 0.5)
+nu_iso   = 0.0          # Kinematic viscosity (set > 0 to enable viscous transport)
+alpha    = 0.0          # Alpha viscosity parameter (spatially-varying: ν̃ = α·γ/√β·(p̃/ρ̃)·r̃^(3/2))
+
+# Physical properties for thermal scaling (CGS)
+M_bh     = 4.5e7        # Black hole mass [M_sun]
+rho_0    = 1.0e-13      # Reference physical density [g/cm³]
+T_0      = 5.00e+04     # Reference temperature in Kelvin (e.g., 1 million K for inner AGN)
+mu       = 2.3          # Mean molecular weight
+chi      = 5.00e+02     # Spatial scaling parameter (r_0 / r_g)
+
+# ==============================================================================
+# PRE-PROCESSING PARAMETERS (Dimensionless Quantities)
+# ==============================================================================
+# Sound speed (cs0)         : 1.527339e+06 cm/s (15.273 km/s)
+# Polytropic index (n_poly) : 3.333333
+# Beta parameter            : 3.852746e+05
+# Disk inner radius (r_in)  : 0.563508 (dimensionless)
+# Disk outer radius (r_out) : 4.436492 (dimensionless)
+# Orbital period (P_tilde)  : 1.012266e-02 (dimensionless)
+# Output timestep (dt_out)  : 1.012266e-03 (dimensionless)
+# Total runtime (tlim)      : 1.012266e+00 (dimensionless)
+#
+# ==============================================================================
+# VISCOSITY CONTROL (Two Methods Available)
+# ==============================================================================
+# ACTIVE METHOD: Alpha Prescription
+# Selected nu_iso           : 5.586344e+00 (dimensionless)
+# Selected tau_visc         : 1.790079e-01 (dimensionless)
+# Selected N_orbits         : ~18 orbits
+#
+# --- Method 1: Shakura-Sunyaev Alpha Prescription ---
+# This method derives viscosity from turbulent disk physics:
+#   nu_iso = alpha * gamma * sqrt(beta) * [(0.5 - C') / (n+1)] * sqrt(R_0)
+#
+# Input:  alpha             : 0.1
+# Output: nu_iso (alpha)    : 5.586344e+00
+#         tau_visc          : 1.790079e-01
+#         N_orbits needed   : ~18 orbits
+#
+# --- Method 2: Direct Evolution Time Control ---
+# This method sets viscosity to achieve a target accretion timescale:
+#   nu_iso = (1/N) * sqrt(beta * R_0) / (2*pi)
+# where N is the desired number of orbits for significant accretion.
+#
+# Input:  N_desired         : 500 orbits
+# Output: nu_iso (N-control): 1.975765e-01
+#         tau_visc          : 5.061330e+00
+#
+# ==============================================================================
+# POST-PROCESSING PARAMETERS (Physical Units)
+# ==============================================================================
+# Black hole mass           : 4.50e+07 M_sun
+# Schwarzschild radius (r_g): 1.328956e+13 cm
+# Length scale (r_0)        : 6.644780e+15 cm (0.0022 pc)
+# Velocity scale (v_0=cs0)  : 15.273 km/s
+# Time scale (t_0)          : 4.350559e+09 s (1.38e+02 yr)
+#
+# DISK GEOMETRY:
+# Inner radius (R_in)       : 0.0012 pc
+# Outer radius (R_out)      : 0.0096 pc
+#
+# TIMESCALES:
+# One orbital period        : 1.40 yr
+# Viscous timescale         : 2.47e+01 yr
+# Orbits for accretion      : ~18 orbits
+#
+# ==============================================================================
