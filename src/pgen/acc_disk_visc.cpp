@@ -21,7 +21,7 @@ namespace {
   const Real C_LIGHT = 2.99792458e10;  // Speed of light [cm/s]
   const Real K_B     = 1.380649e-16;   // Boltzmann constant [erg/K]
   const Real M_P     = 1.67262192e-24; // Proton mass [g]
-  const Real G_GRAV  = 6.67430e-8;     // Gravitational constant [cm³/(g·s²)]
+  const Real G_GRAV  = 6.67430e-8;     // Gravitational constant [cm^3/(g·s^2)]
   const Real M_SUN   = 1.98841e33;     // Solar mass [g]
   const Real YR_TO_S = 3.15576e7;      // Year to seconds conversion
 
@@ -30,7 +30,7 @@ namespace {
   Real mu_gas;       // Mean molecular weight
   Real chi_param;    // Scaling parameter (r_0 / r_g)
   Real M_bh;         // Black hole mass [M_sun]
-  Real rho_0;        // Reference physical density [g/cm³]
+  Real rho_0;        // Reference physical density [g/cm^3]
 
   // Derived Dimensionless Parameters
   Real beta_param;   // Dimensionless gravity (calculated internally)
@@ -46,7 +46,7 @@ namespace {
   Real r_outer;      // Outer disk geometric boundary
 
   // Physical Scaling Factors (for history output)
-  Real r_g;          // Gravitational radius (Schwarzschild) [cm]
+  Real r_g;          // Gravitational radius [cm]
   Real L_0;          // Length scale [cm]
   Real V_0;          // Velocity scale (sound speed) [cm/s]
   Real T_scale;      // Time scale [s]
@@ -64,14 +64,20 @@ void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
                    int is, int ie, int js, int je, int ks, int ke);
 Real TotalDiskMass(MeshBlock *pmb, int iout);
 Real AccretionRate(MeshBlock *pmb, int iout);
+void InnerX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
+                   FaceField &b, Real time, Real dt,
+                   int il, int iu, int jl, int ju, int kl, int ku, int ngh);
+void OuterX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
+                   FaceField &b, Real time, Real dt,
+                   int il, int iu, int jl, int ju, int kl, int ku, int ngh);
 
-// Calculates the geometric shape function f(r)
+// Calculate the geometric shape function f(r)
 Real DiskFunction(Real r) {
   Real x = r_center / r;
   return x - 0.5 * x * x - C_prime;
 }
 
-// Calculates p/rho
+// Calculate p/rho
 Real PressureOverDensity(Real r) {
   Real f = DiskFunction(r);
   if (f > 0.0) {
@@ -80,60 +86,52 @@ Real PressureOverDensity(Real r) {
   return 0.0;
 }
 
-// Calculates normalized density profile
+// Calculate normalized density profile
 Real DiskDensity(Real r) {
   Real f = DiskFunction(r);
   if (f > 0.0) {
-    Real f_center = 0.5 - C_prime; // Maximum value of f(r) occurs exactly at r = r_center
+    Real f_center = 0.5 - C_prime;
     return std::pow(f / f_center, n_poly);
   }
   return rho_floor;
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
-  // 1. Read geometric and numerical parameters
   C_prime    = pin->GetReal("problem", "C_prime");
   r_center   = pin->GetReal("problem", "r_center");
   nu_iso     = pin->GetOrAddReal("problem", "nu_iso", 0.0);
   alpha_visc = pin->GetOrAddReal("problem", "alpha", 0.0);
   gamma_gas  = pin->GetReal("hydro", "gamma");
-  
+
   rho_floor   = pin->GetOrAddReal("hydro", "dfloor", 1.0e-8);
   press_floor = pin->GetOrAddReal("hydro", "pfloor", 1.0e-10);
-  
-  // 2. Read physical parameters
+
   T_0       = pin->GetReal("problem", "T_0");
   mu_gas    = pin->GetReal("problem", "mu");
   chi_param = pin->GetReal("problem", "chi");
-  M_bh      = pin->GetReal("problem", "M_bh");   // Black hole mass [M_sun]
-  rho_0     = pin->GetReal("problem", "rho_0");  // Reference density [g/cm³]
+  M_bh      = pin->GetReal("problem", "M_bh");
+  rho_0     = pin->GetReal("problem", "rho_0");
 
-  // 3. Calculate internal physics
   n_poly = 1.0 / (gamma_gas - 1.0);
 
-  // Calculate isothermal sound speed squared (cs0^2) in CGS [cm^2/s^2]
+  // Calculate isothermal sound speed (cs0) in CGS [cm/s]
   Real cs0_sq = (gamma_gas * K_B * T_0) / (mu_gas * M_P);
   Real cs0    = std::sqrt(cs0_sq);
 
   // Calculate physical scaling factors
-  r_g = 2.0 * G_GRAV * M_bh * M_SUN / (C_LIGHT * C_LIGHT);  // Gravitational radius [cm]
-  L_0 = chi_param * r_g;                                    // Length scale [cm]
-  V_0 = cs0;                                                // Velocity scale [cm/s]
-  T_scale = L_0 / V_0;                                      // Time scale [s]
+  r_g = 2.0 * G_GRAV * M_bh * M_SUN / (C_LIGHT * C_LIGHT);
+  L_0 = chi_param * r_g;
+  V_0 = cs0;
+  T_scale = L_0 / V_0;
   
-  // Mass scale: converts dimensionless integrated density to solar masses
-  // M_physical = rho_0 * L_0³ * M_dimensionless / M_sun
   mass_scale = rho_0 * std::pow(L_0, 3.0) / M_SUN;
   
-  // Mass accretion rate scale: converts to M_sun/yr
-  // Mdot = rho * v * A, dimensions: [g/cm³] * [cm/s] * [cm²] = [g/s]
-  // Convert to M_sun/yr: [g/s] * [yr/s] / [g/M_sun]
   mdot_scale = rho_0 * L_0 * L_0 * V_0 * YR_TO_S / M_SUN;
 
-  // Calculate dimensionless gravity parameter beta
+  // Dimensionless gravity parameter
   beta_param = (C_LIGHT * C_LIGHT) / (2.0 * chi_param * cs0_sq);
 
-  // 4. Calculate exact geometric disk boundaries
+  // Exact geometric disk boundaries
   Real discriminant = 1.0 - 2.0 * C_prime;
   if (discriminant < 0.0) {
     std::stringstream msg;
@@ -144,16 +142,15 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   r_inner = r_center * ( (1.0 - std::sqrt(discriminant)) / (2.0 * C_prime) );
   r_outer = r_center * ( (1.0 + std::sqrt(discriminant)) / (2.0 * C_prime) );
   
-  // 5. Output model parameters to console
+  // Output model parameters to console
   if (Globals::my_rank == 0) {
     std::cout << std::endl;
     std::cout << "===========================================================" << std::endl;
-    std::cout << "  Thermally-Scaled Papaloizou-Pringle Disk" << std::endl;
-    std::cout << "  with Spatially-Varying Alpha Viscosity" << std::endl;
+    std::cout << "  Papaloizou-Pringle Disk with Alpha Viscosity" << std::endl;
     std::cout << "===========================================================" << std::endl;
     std::cout << "  --- Physical Inputs ---" << std::endl;
     std::cout << "  Black Hole Mass (M_bh):         " << M_bh << " M_sun" << std::endl;
-    std::cout << "  Reference Density (rho_0):      " << rho_0 << " g/cm³" << std::endl;
+    std::cout << "  Reference Density (rho_0):      " << rho_0 << " g/cm^3" << std::endl;
     std::cout << "  Temperature (T_0):              " << T_0 << " K" << std::endl;
     std::cout << "  Mean molecular weight (mu):     " << mu_gas << std::endl;
     std::cout << "  Scaling parameter (chi):        " << chi_param << std::endl;
@@ -180,7 +177,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   if (alpha_visc > 0.0) {
     EnrollViscosityCoefficient(DiskViscosity);
   }
-  
+  EnrollUserBoundaryFunction(BoundaryFace::inner_x1, InnerX1OutflowBC);
+  EnrollUserBoundaryFunction(BoundaryFace::outer_x1, OuterX1OutflowBC);
+
   // Enroll user history output functions
   AllocateUserHistoryOutput(2);
   EnrollUserHistoryOutput(0, TotalDiskMass, "disk_mass", UserHistoryOperation::sum);
@@ -190,7 +189,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 }
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
-  Real v_phi_constant = std::sqrt(beta_param * r_center);
+  Real l_constant = std::sqrt(beta_param * r_center);
   
   for (int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
@@ -209,12 +208,12 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
           if (press < press_floor) press = press_floor;
           
           v_r = 0.0;
-          v_phi = v_phi_constant / r; // l = const profile
+          v_phi = l_constant / r; // l = const profile
         } else {
           rho = rho_floor;
           press = press_floor;
           v_r = 0.0;
-          v_phi = v_phi_constant / r;
+          v_phi = l_constant / r;
         }
 
         phydro->w(IDN,k,j,i) = rho;
@@ -237,9 +236,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   return;
 }
 
-// Numerical stabilizer executed after every integration step
 void MeshBlock::UserWorkInLoop() {
-  Real v_phi_constant = std::sqrt(beta_param * r_center);
+  Real l_constant = std::sqrt(beta_param * r_center);
 
   for (int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
@@ -265,20 +263,10 @@ void MeshBlock::UserWorkInLoop() {
         }
         
         if (need_reset) {
-          Real f = DiskFunction(r);
-          Real rho_new, press_new;
+          Real rho_new = rho_floor;
+          Real press_new = press_floor;
           
-          if (f > 0.0) {
-            rho_new = DiskDensity(r);
-            if (rho_new < rho_floor) rho_new = rho_floor;
-            press_new = rho_new * PressureOverDensity(r);
-            if (press_new < press_floor) press_new = press_floor;
-          } else {
-            rho_new = rho_floor;
-            press_new = press_floor;
-          }
-          
-          Real v_phi_new = v_phi_constant / r;
+          Real v_phi_new = l_constant / r;
           
           // Apply corrected values
           phydro->u(IDN,k,j,i) = rho_new;
@@ -306,25 +294,41 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
                  const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                  const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
                  AthenaArray<Real> &cons_scalar) {
-  
+  Real l_constant = std::sqrt(beta_param * r_center);
+
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
       for (int i=pmb->is; i<=pmb->ie; ++i) {
         Real r = pmb->pcoord->x1v(i);
         Real rho = prim(IDN,k,j,i);
         Real v_r = prim(IVX,k,j,i);
-        
+
         Real g = -beta_param / (r * r);
-        
         cons(IM1,k,j,i) += dt * rho * g;
         cons(IEN,k,j,i) += dt * rho * g * v_r;
+
+        Real rho_post = cons(IDN,k,j,i);
+        Real M1_post  = cons(IM1,k,j,i);
+        Real M2_post  = cons(IM2,k,j,i);
+        Real e_post   = cons(IEN,k,j,i);
+        Real e_k      = 0.5 / std::max(rho_post, rho_floor) * (M1_post*M1_post + M2_post*M2_post);
+        Real p_post   = (gamma_gas - 1.0) * (e_post - e_k);
+
+        if (rho_post <= rho_floor || p_post <= press_floor || !std::isfinite(rho_post)) {
+          Real v_phi_atm = l_constant / r;
+          cons(IDN,k,j,i) = rho_floor;
+          cons(IM1,k,j,i) = 0.0;
+          cons(IM2,k,j,i) = rho_floor * v_phi_atm;
+          cons(IM3,k,j,i) = 0.0;
+          cons(IEN,k,j,i) = press_floor / (gamma_gas - 1.0) + 0.5 * rho_floor * v_phi_atm * v_phi_atm;
+        }
       }
     }
   }
   return;
 }
 
-// Spatially-varying alpha viscosity: nu = alpha * (gamma/sqrt(beta)) * (p/rho) * r^(3/2)
+// Alpha-viscosity
 void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
                    const AthenaArray<Real> &prim, const AthenaArray<Real> &bcc,
                    int is, int ie, int js, int je, int ks, int ke) {
@@ -371,7 +375,7 @@ Real AccretionRate(MeshBlock *pmb, int iout) {
   Real mdot_sum = 0.0;
   int i = pmb->is;
   
-  if (pmb->pbval->block_bcs[BoundaryFace::inner_x1] == BoundaryFlag::outflow) {
+  if (pmb->pbval->block_bcs[BoundaryFace::inner_x1] == BoundaryFlag::user) {
     for (int k=pmb->ks; k<=pmb->ke; ++k) {
       for (int j=pmb->js; j<=pmb->je; ++j) {
         Real rho_code = pmb->phydro->w(IDN,k,j,i);
@@ -383,4 +387,38 @@ Real AccretionRate(MeshBlock *pmb, int iout) {
     }
   }
   return mdot_sum * mdot_scale;
+}
+
+void InnerX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
+                   FaceField &b, Real time, Real dt,
+                   int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
+  for (int k=kl; k<=ku; ++k) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int i=1; i<=ngh; ++i) {
+        prim(IDN,k,j,il-i) = prim(IDN,k,j,il);
+        prim(IVX,k,j,il-i) = std::min(prim(IVX,k,j,il), 0.0); // only v_r <= 0
+        prim(IVY,k,j,il-i) = prim(IVY,k,j,il);
+        prim(IVZ,k,j,il-i) = prim(IVZ,k,j,il);
+        prim(IPR,k,j,il-i) = prim(IPR,k,j,il);
+      }
+    }
+  }
+  return;
+}
+
+void OuterX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
+                   FaceField &b, Real time, Real dt,
+                   int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
+  for (int k=kl; k<=ku; ++k) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int i=1; i<=ngh; ++i) {
+        prim(IDN,k,j,iu+i) = prim(IDN,k,j,iu);
+        prim(IVX,k,j,iu+i) = std::max(prim(IVX,k,j,iu), 0.0); // only v_r >= 0
+        prim(IVY,k,j,iu+i) = prim(IVY,k,j,iu);
+        prim(IVZ,k,j,iu+i) = prim(IVZ,k,j,iu);
+        prim(IPR,k,j,iu+i) = prim(IPR,k,j,iu);
+      }
+    }
+  }
+  return;
 }
