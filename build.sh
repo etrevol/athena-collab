@@ -1,16 +1,16 @@
 #!/bin/bash
 set -e  # stop the script immediately if any command fails
 
-problem="acc_disk_temp_visc" # acc_disk_grav, acc_disk_temp, disk_2d_visc, acc_disk_temp_visc
-input="acc_disk_temp_visc"
-specification="-acc_disk-POLY"
+problem="acc_disk_visc" # acc_disk_grav, acc_disk_temp, disk_2d_visc, acc_disk_temp_visc
+input="acc_disk_visc"
+specification="-acc_disk-TEST"
 
 use_mpi=0              # 1 = use MPI parallelization, 0 = single block (no MPI)
-num_mpi_procs=16       # Number of MPI processes
+num_mpi_procs=4       # Number of MPI processes
 
 show_progress="yes"
 
-project_directory="DEBUG"
+project_directory="final"
 
 repo_directory=$(pwd)
 
@@ -83,6 +83,7 @@ cp "${repo_directory}/src/pgen/${problem}.cpp" "${results_directory}/${project_d
 cp "${repo_directory}/scripts/vis1d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 cp "${repo_directory}/scripts/vis2d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 cp "${repo_directory}/scripts/vishst.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+cp "${repo_directory}/scripts/visforces.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 
 # 4. Change to the data directory
 cd "${results_directory}/${project_directory}/${sample_directory}/${data_directory}"
