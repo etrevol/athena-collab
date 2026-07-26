@@ -83,15 +83,16 @@ alpha    = 0.001          # Alpha viscosity parameter (spatially-varying: ν̃ =
 # Ambient medium ("atmosphere") surrounding the torus. This is a genuine, centrifugally
 # balanced equilibrium state (v_phi = sqrt(beta/r)), not a floor: it gives the torus
 # surface somewhere to sit and keeps the ambient Mach number at O(5) instead of O(5000).
-# rho_atm also controls how sharp the torus SURFACE is on the grid: the surface is where
-# rho_disk drops to rho_atm, and the density contrast across it is ~ (first torus cell)/rho_atm.
-# With rho_atm = 1e-6 that contrast is ~110 per cell, which is under-resolved: with viscosity
-# ON and cfl >= 0.3 the viscous stress across that jump blows a single cell up and the
-# timestep collapses to ~1e-88 (the run appears to hang). rho_atm = 1e-5 cuts the contrast to
-# ~11 and is stable; the ambient still carries only ~1e-4 of the disk mass.
-rho_atm      = 1.0e-5   # Ambient density (1e-5 of the torus density maximum)
+# rho_atm also sets how sharp the torus SURFACE is on the grid. Because rho ~ (r-r_in)^n,
+# the width of the surface is fixed by rho_atm, NOT by dr -- refining the radial grid does
+# not resolve it. With viscosity ON this matters: a single ring at the surface runs away
+# and the timestep collapses to ~1e-88 (the run looks like it hangs). Measured for
+# alpha=0.01:  rho_atm=1e-6 -> collapses at t=0.004;  1e-5 -> t=0.013;  1e-4 -> no collapse
+# seen through t=0.11.  cfl_number, nx1 and visc_rho_cut were each tested and change nothing.
+# => keep 1e-6 for inviscid runs (minimal ambient mass); use 1e-4 when alpha > 0.
+rho_atm      = 1.0e-6   # Ambient density (1e-6 of the torus density maximum)
 t_atm_frac   = 1.0      # Ambient p/rho, in units of the torus mid-plane value
-visc_rho_cut = 1.0e-4   # Alpha viscosity is tapered off below this density (= 10*rho_atm)
+visc_rho_cut = 1.0e-5   # Alpha viscosity is tapered off below this density (= 10*rho_atm)
 
 # Physical properties for thermal scaling (CGS)
 M_bh     = 4.5e7        # Black hole mass [M_sun]
