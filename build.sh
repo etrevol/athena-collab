@@ -3,14 +3,14 @@ set -e  # stop the script immediately if any command fails
 
 problem="acc_disk_visc" # acc_disk_grav, acc_disk_temp, disk_2d_visc, acc_disk_temp_visc
 input="acc_disk_visc"
-specification="-acc_disk-TEST"
+specification="-acc_disk_visc"
 
 use_mpi=0              # 1 = use MPI parallelization, 0 = single block (no MPI)
 num_mpi_procs=4       # Number of MPI processes
 
 show_progress="yes"
 
-project_directory="final"
+project_directory="fixed_tests"
 
 repo_directory=$(pwd)
 
