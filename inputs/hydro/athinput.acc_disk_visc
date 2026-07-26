@@ -85,11 +85,16 @@ alpha    = 0.001          # Alpha viscosity parameter (spatially-varying: ν̃ =
 # surface somewhere to sit and keeps the ambient Mach number at O(5) instead of O(5000).
 # rho_atm also sets how sharp the torus SURFACE is on the grid. Because rho ~ (r-r_in)^n,
 # the width of the surface is fixed by rho_atm, NOT by dr -- refining the radial grid does
-# not resolve it. With viscosity ON this matters: a single ring at the surface runs away
-# and the timestep collapses to ~1e-88 (the run looks like it hangs). Measured for
-# alpha=0.01:  rho_atm=1e-6 -> collapses at t=0.004;  1e-5 -> t=0.013;  1e-4 -> no collapse
-# seen through t=0.11.  cfl_number, nx1 and visc_rho_cut were each tested and change nothing.
-# => keep 1e-6 for inviscid runs (minimal ambient mass); use 1e-4 when alpha > 0.
+# not resolve it. This matters once viscosity is ON: a single ring at the surface runs away
+# and the timestep collapses to ~1e-88 (the run looks like it hangs).
+#   alpha=0.01:  rho_atm=1e-6 -> collapses at t=0.004;  1e-5 -> t=0.013;  1e-4 -> no collapse
+# BUT rho_atm cannot be used to fix that, because it drives inviscid mass conservation the
+# other way:
+#   alpha=0:     rho_atm=1e-6 -> dm/m0 = -1.4e-6;       1e-4 -> dm/m0 = -39%
+# It is the ambient DENSITY both times, not its pressure: rerunning rho_atm=1e-4 with
+# t_atm_frac=0.01 (p_atm back to the validated 0.0267) still loses 38.6% inviscid and still
+# avoids the viscous collapse. Keep 1e-6, which is the validated inviscid value; viscous
+# runs are a known open issue (see docs/acc_disk_visc.md).
 rho_atm      = 1.0e-6   # Ambient density (1e-6 of the torus density maximum)
 t_atm_frac   = 1.0      # Ambient p/rho, in units of the torus mid-plane value
 visc_rho_cut = 1.0e-5   # Alpha viscosity is tapered off below this density (= 10*rho_atm)

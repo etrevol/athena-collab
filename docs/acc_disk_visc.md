@@ -88,19 +88,37 @@ state.
 Validated, `alpha = 0`, 100 orbits, 176 x 128: `dm/m0 = -1.4e-6`, `dE/E0 = 1.4e-5`, no
 cell at a floor, and a 16-MeshBlock decomposition is bit-identical to a single block.
 
-**Known open issue — viscous runs.** With viscosity on, a single radial ring at the torus
-surface (r ~ 0.54) can run away (`p ~ 1e10`, `v_r ~ 2e5`) and the timestep collapses to
-~1e-88, which looks like a hang. The trigger is that the torus surface is a *sub-grid*
-density discontinuity: its width is set by `rho_atm` (because `rho ~ (r - r_inner)^n`),
-not by `dr`, so refining the radial grid does **not** resolve it. Measured behaviour at
-`alpha = 0.01`:
+**Known open issue — viscous runs are NOT usable yet.** With viscosity on, a single radial
+ring at the torus surface (r ~ 0.54) runs away (`p ~ 1e10`, `v_r ~ 2e5`) and the timestep
+collapses to ~1e-88. Time then stops advancing while cycles keep running, so the job looks
+like it hangs with an ever-growing ETA rather than crashing.
 
-| `rho_atm` | collapses at |
-|---|---|
-| 1e-6 | t = 0.004 (0.4 orbits) |
-| 1e-5 | t = 0.013 (1.3 orbits) |
-| 1e-4 | no collapse observed through t = 0.11 |
+The trigger is that the torus surface is a *sub-grid* density discontinuity. Because
+`rho ~ (r - r_inner)^n`, its width is set by `rho_atm`, **not** by `dr` — refining the
+radial grid leaves the transition inside one cell and does not help. Ruled out by direct
+test: `visc_rho_cut` (1e-5 / 1e-3 / 1e-2 all collapse at the same time), `cfl_number`
+(0.4 / 0.2 / 0.1), and radial resolution (nx1 x 2). `xorder = 1` avoids it.
 
-`visc_rho_cut`, `cfl_number` and radial resolution were each tested and make no
-difference. `xorder = 1` also avoids it. Use `rho_atm = 1e-4` for viscous runs until this
-is properly fixed.
+`rho_atm` does control it — but it cannot be used, because it also controls inviscid mass
+conservation, and in the opposite direction:
+
+| | `alpha = 0`, 100 orbits | `alpha = 0.01`, 30 orbits |
+|---|---|---|
+| `rho_atm = 1e-6` | `dm/m0 = -1.4e-6` | collapses at t = 0.004 |
+| `rho_atm = 1e-5` | — | collapses at t = 0.013 |
+| `rho_atm = 1e-4` | `dm/m0 = -39%` | no collapse |
+
+The ambient *pressure* is not the culprit in either direction: rerunning `rho_atm = 1e-4`
+with `t_atm_frac = 0.01`, which restores `p_atm` to its validated value of 0.0267, still
+gives `dm/m0 = -38.6%` inviscid and still avoids the viscous collapse. It is the ambient
+*density* both times. A denser ambient widens the surface (good for viscosity) but also
+puts far more mass in the shear layer between the `l = const` torus and the Keplerian
+ambient, where numerical angular-momentum transport then drains the disk even at
+`alpha = 0`.
+
+So `rho_atm` is a single knob driving two requirements in opposite directions, and no
+value of it satisfies both. The default stays at `1e-6`, which is what the inviscid result
+was validated with. **Do not trust viscous runs until this is fixed.** Worth trying next:
+smoothing the torus surface itself in the initial condition rather than raising the floor
+of the ambient; a radially tapered `alpha`; or super-time-stepping (`-sts`) for the
+diffusion operator.
