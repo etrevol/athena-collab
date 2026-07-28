@@ -1,0 +1,36 @@
+Parameter,Symbol,Value,Units,Notes
+PHYSICAL PARAMETERS,,,,
+Black Hole Mass,M_BH,1.70e+07,M☉,3.3804e+40 g
+Gravitational Radius,r_g,5.0207e+12,cm,0.3356 AU
+,,,,
+CHARACTERISTIC SCALES,,,,
+Scaling Parameter,χ,1000.00,—,r₀ = χ·r_g
+Characteristic Length,r₀,5.0207e+15,cm,335.61 AU
+Characteristic Velocity,v₀,6.7036e+08,cm/s,0.022361 c
+Orbital Period,t₀,4.7058e+07,s,544.66 days
+,,,,
+THERMODYNAMIC PARAMETERS,,,,
+Adiabatic Index,γ,1.666667,—,EOS parameter
+Polytropic Index,n,1.5000,—,n = 1/(γ-1)
+,,,,
+DISK STRUCTURE,,,,
+Width Parameter,C',0.300,—,determines thickness
+Inner Edge,r̃_inner,0.6126,—,205.584 AU
+Outer Edge,r̃_outer,2.7208,—,913.105 AU
+Disk Width,Δr̃,2.1082,—,
+,,,,
+VISCOSITY & TIMESCALES,,,,
+Kinematic Viscosity,ν̃,0,—,INVISCID
+Viscous Timescale,τ_visc,∞,—,no viscous evolution
+Equivalent α-parameter,α_equiv,0,—,
+,,,,
+SIMULATION PARAMETERS,,,,
+Radial Resolution,nx1,256,cells,
+Azimuthal Resolution,nx2,256,cells,
+Radial Domain,"[x1min,x1max]","[0.3,3.0]",—,100.68-1006.82 AU
+Azimuthal Domain,"[x2min,x2max]","[0,2π]",rad,full circle
+CFL Number,cfl,0.3,—,stability
+Simulation Time,tlim,628.32,t₀,342217.8 days
+Output Cadence,dt_output,6.28,t₀,3422.18 days
+Density Floor,dfloor,1.0e-08,—,numerical stability
+Pressure Floor,pfloor,1.0e-10,—,numerical stability
