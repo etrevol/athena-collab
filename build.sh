@@ -10,7 +10,7 @@ num_mpi_procs=4       # Number of MPI processes
 
 show_progress="yes"
 
-project_directory="fixed_tests"
+project_directory="runs"
 
 repo_directory=$(pwd)
 
