@@ -69,8 +69,13 @@ doc/doxy*
 
 # Local working tree: heavy simulation output, helper scripts, LaTeX sources and
 # reports. Deliberately not shipped with the fork.
-/scripts
+# Only the working tooling is tracked; practice-legacy/, theory/ and
+# theory-legacy/ stay personal.
+/scripts/*
+!/scripts/practice
 /materials
 /results
 .github
 .build_state
+__pycache__/
+*.pyc
