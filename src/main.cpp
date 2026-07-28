@@ -132,6 +132,7 @@ int main(int argc, char *argv[]) {
         case 'n':
         case 'c':
         case 'h':
+        case 'p':
           break;
           // options that require arguments:
         default:
@@ -162,6 +163,9 @@ int main(int argc, char *argv[]) {
         case 'n':
           narg_flag = 1;
           break;
+        case 'p':                      // -p (show progress bar)
+          Globals::show_progress = true;
+          break;
         case 'm':                      // -m <nproc>
           mesh_flag = static_cast<int>(std::strtol(argv[++i], nullptr, 10));
           break;
@@ -190,6 +194,7 @@ int main(int argc, char *argv[]) {
             std::cout << "  -c              show configuration and quit\n";
             std::cout << "  -m <nproc>      output mesh structure and quit\n";
             std::cout << "  -t hh:mm:ss     wall time limit for final output\n";
+            std::cout << "  -p              show progress bar with ETA\n";
             std::cout << "  -h              this help\n";
             ShowConfig();
           }
@@ -578,8 +583,10 @@ int main(int argc, char *argv[]) {
   //--- Step 9. --------------------------------------------------------------------------
   // Output the final cycle diagnostics and make the final outputs
 
-  if (Globals::my_rank == 0)
+  if (Globals::my_rank == 0) {
     pmesh->OutputCycleDiagnostics();
+    std::cout << std::endl;  // Add newline after progress bar
+  }
 
   pmesh->UserWorkAfterLoop(pinput);
 

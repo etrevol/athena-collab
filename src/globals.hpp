@@ -10,6 +10,7 @@
 
 namespace Globals {
 extern int my_rank, nranks;
+extern bool show_progress;
 }
 
 #endif // GLOBALS_HPP_

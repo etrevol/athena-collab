@@ -17,6 +17,7 @@
 #include <cstdint>    // std::int64_t fixed-wdith integer type alias
 #include <cstdlib>
 #include <cstring>    // std::memcpy()
+#include <ctime>      // clock(), CLOCKS_PER_SEC
 #include <iomanip>    // std::setprecision()
 #include <iostream>
 #include <limits>
@@ -24,6 +25,11 @@
 #include <stdexcept>  // runtime_error
 #include <string>     // c_str()
 #include <vector>
+
+// OpenMP header
+#ifdef OPENMP_PARALLEL
+#include <omp.h>
+#endif
 
 // Athena++ headers
 #include "../athena.hpp"
@@ -1963,6 +1969,15 @@ void Mesh::Initialize(int res_flag, ParameterInput *pin) {
   }
 
   NewTimeStep();
+  
+  // Initialize wall time tracking for progress reporting
+  start_time_cpu = clock();
+#ifdef OPENMP_PARALLEL
+  start_time_wall = omp_get_wtime();
+#else
+  start_time_wall = static_cast<double>(start_time_cpu) / CLOCKS_PER_SEC;
+#endif
+
   return;
 }
 
@@ -2306,32 +2321,147 @@ void Mesh::OutputCycleDiagnostics() {
   const int ratio_precision = 3;
   if (ncycle_out != 0) {
     if (ncycle % ncycle_out == 0) {
-      std::cout << "cycle=" << ncycle << std::scientific
-                << std::setprecision(dt_precision)
-                << " time=" << time << " dt=" << dt;
-      if (dt_diagnostics != -1) {
-        if (STS_ENABLED) {
-          if (UserTimeStep_ == nullptr)
-            std::cout << "=dt_hyperbolic";
-          // remaining dt_parabolic diagnostic output handled in STS StartupTaskList
+      if (Globals::show_progress) {
+        // NEW PROGRESS BAR OUTPUT
+        // Calculate elapsed time
+        clock_t current_time_cpu = clock();
+        double elapsed_cpu = (current_time_cpu > start_time_cpu ? 
+                             static_cast<double>(current_time_cpu - start_time_cpu) : 1.0) / 
+                             static_cast<double>(CLOCKS_PER_SEC);
+#ifdef OPENMP_PARALLEL
+        double elapsed_wall = omp_get_wtime() - start_time_wall;
+#else
+        double elapsed_wall = elapsed_cpu;
+#endif
+
+        // Calculate progress
+        double progress_time = 0.0;
+        double progress_cycle = 0.0;
+        bool time_limited = (tlim < std::numeric_limits<Real>::max());
+        bool cycle_limited = (nlim >= 0);
+        
+        if (time_limited) {
+          progress_time = (time - start_time) / (tlim - start_time) * 100.0;
+        }
+        if (cycle_limited) {
+          progress_cycle = static_cast<double>(ncycle) / static_cast<double>(nlim) * 100.0;
+        }
+        
+        // Determine which progress to use for ETA
+        double progress = 0.0;
+        if (time_limited && cycle_limited) {
+          progress = std::max(progress_time, progress_cycle);
+        } else if (time_limited) {
+          progress = progress_time;
+        } else if (cycle_limited) {
+          progress = progress_cycle;
+        }
+        
+        // Calculate ETA
+        double eta = 0.0;
+        if (progress > 0.1) {  // Only calculate ETA after 0.1% progress
+          eta = elapsed_wall * (100.0 / progress - 1.0);
+        }
+        
+        static bool progress_initialized = false;
+        if (!progress_initialized) {
+          for (int i = 0; i < 1; ++i) std::cout << '\n';
+          progress_initialized = true;
+        }
+
+        // Print progress bar
+        const int bar_width = 30;
+        std::cout << "\r";  // Carriage return to overwrite previous line
+        std::cout << "Progress: [";
+        int filled = static_cast<int>(progress * bar_width / 100.0);
+        for (int i = 0; i < bar_width; ++i) {
+          if (i < filled) std::cout << "■";
+          else if (i == filled) std::cout << ">";
+          else std::cout << " ";
+        }
+        std::cout << "] " << std::fixed << std::setprecision(1) << progress << "%";
+        
+        // Print elapsed time
+        int elapsed_hours = static_cast<int>(elapsed_wall) / 3600;
+        int elapsed_mins = (static_cast<int>(elapsed_wall) % 3600) / 60;
+        int elapsed_secs = static_cast<int>(elapsed_wall) % 60;
+        std::cout << " | Elapsed: " << std::setfill('0')
+                  << std::setw(2) << elapsed_hours << ":"
+                  << std::setw(2) << elapsed_mins << ":"
+                  << std::setw(2) << elapsed_secs << std::setfill(' ');
+        
+        // Print ETA
+        if (progress > 0.1) {
+          int eta_hours = static_cast<int>(eta) / 3600;
+          int eta_mins = (static_cast<int>(eta) % 3600) / 60;
+          int eta_secs = static_cast<int>(eta) % 60;
+          std::cout << " | ETA: " << std::setfill('0')
+                    << std::setw(2) << eta_hours << ":"
+                    << std::setw(2) << eta_mins << ":"
+                    << std::setw(2) << eta_secs << std::setfill(' ');
         } else {
-          Real ratio = dt / dt_hyperbolic;
-          std::cout << "\ndt_hyperbolic=" << dt_hyperbolic << " ratio="
-                    << std::setprecision(ratio_precision) << ratio
-                    << std::setprecision(dt_precision);
-          ratio = dt / dt_parabolic;
-          std::cout << "\ndt_parabolic=" << dt_parabolic << " ratio="
-                    << std::setprecision(ratio_precision) << ratio
-                    << std::setprecision(dt_precision);
+          std::cout << " | ETA: calculating...";
         }
-        if (UserTimeStep_ != nullptr) {
-          Real ratio = dt / dt_user;
-          std::cout << "\ndt_user=" << dt_user << " ratio="
-                    << std::setprecision(ratio_precision) << ratio
-                    << std::setprecision(dt_precision);
+        
+        // Print cycle and time info
+        std::cout << " | cycle=" << ncycle;
+        if (cycle_limited) {
+          std::cout << "/" << nlim;
         }
-      } // else (empty): dt_diagnostics = -1 -> provide no additional timestep diagnostics
-      std::cout << std::endl;
+        std::cout << " | sim_time=" << std::scientific << std::setprecision(3) << time;
+        if (time_limited) {
+          std::cout << "/" << std::setprecision(3) << tlim;
+        }
+        
+        std::cout << std::flush;  // Don't add newline, just flush
+        
+        // If dt_diagnostics is enabled, print detailed info on new line
+        if (dt_diagnostics != -1) {
+          std::cout << "\n" << std::setprecision(dt_precision);
+          std::cout << "dt=" << dt;
+          if (STS_ENABLED) {
+            if (UserTimeStep_ == nullptr)
+              std::cout << "=dt_hyperbolic";
+          } else {
+            Real ratio = dt / dt_hyperbolic;
+            std::cout << " | dt_hyperbolic=" << dt_hyperbolic << " (ratio="
+                      << std::setprecision(ratio_precision) << ratio << ")";
+            ratio = dt / dt_parabolic;
+            std::cout << " | dt_parabolic=" << dt_parabolic << " (ratio="
+                      << std::setprecision(ratio_precision) << ratio << ")";
+          }
+          if (UserTimeStep_ != nullptr) {
+            Real ratio = dt / dt_user;
+            std::cout << " | dt_user=" << dt_user << " (ratio="
+                      << std::setprecision(ratio_precision) << ratio << ")";
+          }
+          std::cout << std::flush;
+        }
+      } else {
+        // ORIGINAL ATHENA++ OUTPUT (DEFAULT)
+        std::cout << "cycle=" << ncycle << std::scientific
+                  << std::setprecision(dt_precision)
+                  << " time=" << time << " dt=" << dt;
+        if (dt_diagnostics != -1) {
+          if (STS_ENABLED) {
+            if (UserTimeStep_ == nullptr)
+              std::cout << "=dt_hyperbolic";
+          } else {
+            Real ratio = dt / dt_hyperbolic;
+            std::cout << " dt_hyperbolic=" << dt_hyperbolic << " (ratio="
+                      << std::setprecision(ratio_precision) << ratio << ")";
+            ratio = dt / dt_parabolic;
+            std::cout << " dt_parabolic=" << dt_parabolic << " (ratio="
+                      << std::setprecision(ratio_precision) << ratio << ")";
+          }
+          if (UserTimeStep_ != nullptr) {
+            Real ratio = dt / dt_user;
+            std::cout << " dt_user=" << dt_user << " (ratio="
+                      << std::setprecision(ratio_precision) << ratio << ")";
+          }
+        }
+        std::cout << std::endl;
+      }
     }
   }
   return;
