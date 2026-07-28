@@ -1,0 +1,6 @@
+[submodule "docs/athena-wiki"]
+	path = docs/athena-wiki
+	url = https://github.com/PrincetonUniversity/athena.wiki.git
+[submodule "docs/astroformular"]
+	path = docs/astroformular
+	url = https://github.com/etrevol/astrophysics-formular.git

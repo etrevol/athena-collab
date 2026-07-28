@@ -67,10 +67,9 @@ meshtest.dat
 # compiled doxygen file
 doc/doxy*
 
-/scripts
+# Local working tree: heavy simulation output, helper scripts, LaTeX sources and
+# reports. Deliberately not shipped with the fork.
 /materials
 /results
 .github
 .build_state
-.gitignore
-.gitmodules
