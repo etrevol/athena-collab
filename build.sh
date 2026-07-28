@@ -80,10 +80,17 @@ mkdir -p "${results_directory}/${project_directory}/${sample_directory}/${materi
 cp "${repo_directory}/inputs/hydro/athinput.${input}" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 cp "${repo_directory}/src/pgen/${problem}.cpp" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 
-cp "${repo_directory}/scripts/practice/vis/vis1d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-cp "${repo_directory}/scripts/practice/vis/vis2d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-cp "${repo_directory}/scripts/practice/vis/vishst.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-cp "${repo_directory}/scripts/practice/vis/visforces.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+# The visualization scripts live outside the repository (scripts/ is gitignored), so a
+# fresh clone will not have them. They are a convenience copy, not something the run
+# depends on - skip whatever is missing instead of aborting under `set -e`.
+vis_scripts_dir="${repo_directory}/scripts/practice/vis"
+for vis_script in vis1d.py vis2d.py vishst.py visforces.py; do
+    if [ -f "${vis_scripts_dir}/${vis_script}" ]; then
+        cp "${vis_scripts_dir}/${vis_script}" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+    else
+        echo "Note: ${vis_script} not found in ${vis_scripts_dir} - skipping."
+    fi
+done
 
 # 4. Change to the data directory
 cd "${results_directory}/${project_directory}/${sample_directory}/${data_directory}"

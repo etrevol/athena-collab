@@ -69,6 +69,7 @@ doc/doxy*
 
 # Local working tree: heavy simulation output, helper scripts, LaTeX sources and
 # reports. Deliberately not shipped with the fork.
+/scripts
 /materials
 /results
 .github
