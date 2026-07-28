@@ -6,13 +6,16 @@ configure = --prob=acc_disk_temp_visc --coord=cylindrical
 problem_id = acc_disk_visc
 
 <output1>
-file_type  = tab        # Table output format for 1D/2D diagnostics
+# HDF5 (.athdf): one file per frame instead of one per MeshBlock, and it carries the
+# grid and the coordinate system with it. scripts/practice/vis/ reads it directly.
+# Requires build.sh with use_hdf5=1 (configure.py -hdf5).
+file_type  = hdf5       # HDF5 output
 variable   = prim       # Output primitive variables (rho, v, p)
 dt         = 1.01227e-03      # Output timestep (every 0.1 frames per orbit)
 dcycle     = -1         # Disable cycle-based output
 
 <output2>
-file_type  = tab        # User output variables
+file_type  = hdf5       # User output variables
 variable   = uov        # f_grav (col4), f_centr (col5), f_press (col6), f_sum (col7)
 dt         = 1.01227e-03      # Output timestep
 dcycle     = -1         # Disable cycle-based output
