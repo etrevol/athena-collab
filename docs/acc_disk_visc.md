@@ -88,37 +88,41 @@ state.
 Validated, `alpha = 0`, 100 orbits, 176 x 128: `dm/m0 = -1.4e-6`, `dE/E0 = 1.4e-5`, no
 cell at a floor, and a 16-MeshBlock decomposition is bit-identical to a single block.
 
-**Known open issue — viscous runs are NOT usable yet.** With viscosity on, a single radial
-ring at the torus surface (r ~ 0.54) runs away (`p ~ 1e10`, `v_r ~ 2e5`) and the timestep
-collapses to ~1e-88. Time then stops advancing while cycles keep running, so the job looks
-like it hangs with an ever-growing ETA rather than crashing.
+**Viscous runs need `rho_atm = 1e-4`.** With a lighter ambient the run appears to hang:
+the timestep collapses to ~1e-88, so time stops advancing while cycles keep running and the
+ETA grows without bound.
 
-The trigger is that the torus surface is a *sub-grid* density discontinuity. Because
-`rho ~ (r - r_inner)^n`, its width is set by `rho_atm`, **not** by `dr` — refining the
-radial grid leaves the transition inside one cell and does not help. Ruled out by direct
-test: `visc_rho_cut` (1e-5 / 1e-3 / 1e-2 all collapse at the same time), `cfl_number`
-(0.4 / 0.2 / 0.1), and radial resolution (nx1 x 2). `xorder = 1` avoids it.
+The mechanism is in the funnel between the inner boundary and the torus, not at the
+boundary itself. Viscosity makes the inner edge of the torus spread inwards, and the
+near-empty cell just ahead of the advancing front is accelerated without bound, because the
+viscous flux across it is built from the face-averaged density (dominated by the dense side)
+but deposited into a cell some 1e4 times lighter. Measured at `alpha = 0.01`, in the cell at
+r = 0.5126:
 
-`rho_atm` does control it — but it cannot be used, because it also controls inviscid mass
-conservation, and in the opposite direction:
+| cycle | rho(0.4831) | rho(0.5126) | rho(0.5422) | v_r(0.5126) |
+|---|---|---|---|---|
+| 650 | 4.70e-7 | 4.30e-7 | 3.08e-3 | 74.6 |
+| 675 | 4.72e-7 | 3.94e-7 | 3.87e-3 | 513.8 |
+| 700 | 6.66e-7 | 8.46e-8 | 4.14e-3 | 22790.5 |
 
-| | `alpha = 0`, 100 orbits | `alpha = 0.01`, 30 orbits |
+`rho_atm = 1e-4` gives that cell enough inertia and costs almost nothing:
+
+| `rho_atm` | `alpha = 0.01` | `alpha = 0`, 100 orbits |
 |---|---|---|
-| `rho_atm = 1e-6` | `dm/m0 = -1.4e-6` | collapses at t = 0.004 |
-| `rho_atm = 1e-5` | — | collapses at t = 0.013 |
-| `rho_atm = 1e-4` | `dm/m0 = -39%` | no collapse |
+| 1e-6 | collapses at t = 0.004 | `dm/m0 = -1.4e-6` |
+| 1e-5 | collapses at t = 0.013 | — |
+| **1e-4** | **stable past t = 0.14 (34x further)** | **`dm/m0 = -2.6e-5`** |
 
-The ambient *pressure* is not the culprit in either direction: rerunning `rho_atm = 1e-4`
-with `t_atm_frac = 0.01`, which restores `p_atm` to its validated value of 0.0267, still
-gives `dm/m0 = -38.6%` inviscid and still avoids the viscous collapse. It is the ambient
-*density* both times. A denser ambient widens the surface (good for viscosity) but also
-puts far more mass in the shear layer between the `l = const` torus and the Keplerian
-ambient, where numerical angular-momentum transport then drains the disk even at
-`alpha = 0`.
+Tried and found *not* to help — each only postpones the collapse, so do not spend time on
+them again: `cfl_number` (0.4 / 0.2 / 0.1), radial resolution (`nx1` x 2, the surface width
+is set by `rho_atm` not by `dr`), `visc_rho_cut` (1e-5 / 1e-3 / 1e-2), a cap on the
+viscosity scale height or sound speed, a radial switch-off of the viscosity near the inner
+edge, a radially declining ambient, moving `x1min` closer to the torus, and `xorder = 1`
+(delays it 19x).
 
-So `rho_atm` is a single knob driving two requirements in opposite directions, and no
-value of it satisfies both. The default stays at `1e-6`, which is what the inviscid result
-was validated with. **Do not trust viscous runs until this is fixed.** Worth trying next:
-smoothing the torus surface itself in the initial condition rather than raising the floor
-of the ambient; a radially tapered `alpha`; or super-time-stepping (`-sts`) for the
-diffusion operator.
+**A trap that will cost you a day if you hit it.** `nu_iso > 0` with `alpha = 0` is *not* an
+inviscid run: `DiskViscosity` is only enrolled when `alpha > 0`, so Athena++ quietly applies
+a *constant* `nu = nu_iso` everywhere instead. An `alpha = 0` control run needs `nu_iso = 0`
+as well. The problem generator now warns about this. (An earlier revision of this document
+claimed `rho_atm = 1e-4` destroyed mass conservation; that measurement was made with
+`nu_iso = 1.0` still set and was simply physical viscous accretion.)

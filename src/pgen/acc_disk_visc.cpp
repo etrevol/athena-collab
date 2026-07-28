@@ -231,6 +231,20 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   // Athena++ only evaluates the viscous fluxes when <problem>/nu_iso > 0 (see
   // HydroDiffusion::CalcDiffusionFlux). An enrolled coefficient function is silently
   // ignored otherwise, so alpha > 0 with nu_iso = 0 would quietly run as an inviscid disk.
+  // The mirror trap, which is just as easy to fall into: nu_iso > 0 with alpha == 0 does
+  // NOT give an inviscid run. Athena++ then applies a CONSTANT kinematic viscosity equal
+  // to nu_iso, because DiskViscosity() is only enrolled when alpha > 0 and so never
+  // overwrites it. An "alpha = 0" control run therefore needs nu_iso = 0 as well.
+  if (alpha_visc <= 0.0 && nu_iso > 0.0 && Globals::my_rank == 0) {
+    std::cout << std::endl
+              << "  *** WARNING: alpha = 0 but nu_iso = " << nu_iso << " > 0." << std::endl
+              << "      This is NOT an inviscid run: Athena++ will apply a constant"
+              << std::endl
+              << "      kinematic viscosity nu = " << nu_iso << " everywhere." << std::endl
+              << "      Set nu_iso = 0 for a genuinely inviscid control run." << std::endl
+              << std::endl;
+  }
+
   if (alpha_visc > 0.0 && nu_iso <= 0.0) {
     std::stringstream msg;
     msg << "### FATAL ERROR in acc_disk_visc.cpp" << std::endl
