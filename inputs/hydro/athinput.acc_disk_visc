@@ -77,6 +77,8 @@ C_prime  = 0.2          # Geometric thickness parameter (< 0.5)
 # NOTE: Athena++ only evaluates viscous fluxes when nu_iso > 0 (HydroDiffusion gates
 # ViscousFluxIso on it). To use the alpha prescription, set BOTH alpha > 0 and nu_iso > 0;
 # nu_iso then only acts as an "enable" switch, its value is overwritten by DiskViscosity.
+# Beware the mirror trap too: nu_iso > 0 with alpha = 0 is NOT an inviscid run, it applies
+# a CONSTANT nu = nu_iso. An alpha = 0 control run needs nu_iso = 0 as well.
 nu_iso   = 1.0          # Kinematic viscosity (set > 0 to enable viscous transport)
 alpha    = 0.001          # Alpha viscosity parameter (spatially-varying: ν̃ = α·γ/√β·(p̃/ρ̃)·r̃^(3/2))
 
@@ -85,19 +87,17 @@ alpha    = 0.001          # Alpha viscosity parameter (spatially-varying: ν̃ =
 # surface somewhere to sit and keeps the ambient Mach number at O(5) instead of O(5000).
 # rho_atm also sets how sharp the torus SURFACE is on the grid. Because rho ~ (r-r_in)^n,
 # the width of the surface is fixed by rho_atm, NOT by dr -- refining the radial grid does
-# not resolve it. This matters once viscosity is ON: a single ring at the surface runs away
-# and the timestep collapses to ~1e-88 (the run looks like it hangs).
-#   alpha=0.01:  rho_atm=1e-6 -> collapses at t=0.004;  1e-5 -> t=0.013;  1e-4 -> no collapse
-# BUT rho_atm cannot be used to fix that, because it drives inviscid mass conservation the
-# other way:
-#   alpha=0:     rho_atm=1e-6 -> dm/m0 = -1.4e-6;       1e-4 -> dm/m0 = -39%
-# It is the ambient DENSITY both times, not its pressure: rerunning rho_atm=1e-4 with
-# t_atm_frac=0.01 (p_atm back to the validated 0.0267) still loses 38.6% inviscid and still
-# avoids the viscous collapse. Keep 1e-6, which is the validated inviscid value; viscous
-# runs are a known open issue (see docs/acc_disk_visc.md).
-rho_atm      = 1.0e-6   # Ambient density (1e-6 of the torus density maximum)
+# not resolve it. This matters once viscosity is ON: the viscously spreading inner front of
+# the torus advances into the funnel at r < r_in, and the near-empty cell just ahead of it
+# is accelerated without bound (measured: v_r 75 -> 514 -> 22790 over 50 cycles), after
+# which the timestep collapses to ~1e-88 and the run looks like it hangs.
+#   alpha=0.01:  rho_atm=1e-6 -> collapses at t=0.004;  1e-5 -> t=0.013;  1e-4 -> stable
+# 1e-4 gives the funnel enough inertia and costs almost nothing: with alpha = 0 and
+# nu_iso = 0 the disk still conserves mass to dm/m0 = -2.6e-5 over 100 orbits (vs -1.4e-6
+# at 1e-6), and disk_mass is unchanged to 5 digits.
+rho_atm      = 1.0e-4   # Ambient density; >= 1e-4 is required whenever alpha > 0
 t_atm_frac   = 1.0      # Ambient p/rho, in units of the torus mid-plane value
-visc_rho_cut = 1.0e-5   # Alpha viscosity is tapered off below this density (= 10*rho_atm)
+visc_rho_cut = 1.0e-3   # Alpha viscosity is tapered off below this density (= 10*rho_atm)
 
 # Physical properties for thermal scaling (CGS)
 M_bh     = 4.5e7        # Black hole mass [M_sun]
