@@ -21,6 +21,12 @@ dcycle     = -1         # Disable cycle-based output
 file_type  = hst        # History file (time series of global quantities)
 dt         = 1.01227e-03      # Output timestep (every 0.01 orbits for fine tracking)
 dcycle     = -1         # Disable cycle-based output
+# Athena++ defaults to %12.5e, i.e. 6 significant digits. That is not enough here:
+# disk_mass ~ 1.02e+02 while the whole physical change over 100 orbits is ~2.5e-3 M_sun,
+# so the printed value can only take ~3 distinct values and the plotted curve degenerates
+# into a square wave dithering between them. This is an output artefact, not a physical
+# oscillation. Full double precision removes it.
+data_format = %24.16e
 
 <time>
 cfl_number = 0.4        # Strict CFL for stability during viscous shearing
