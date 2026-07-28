@@ -80,10 +80,10 @@ mkdir -p "${results_directory}/${project_directory}/${sample_directory}/${materi
 cp "${repo_directory}/inputs/hydro/athinput.${input}" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 cp "${repo_directory}/src/pgen/${problem}.cpp" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 
-cp "${repo_directory}/scripts/vis1d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-cp "${repo_directory}/scripts/vis2d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-cp "${repo_directory}/scripts/vishst.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-cp "${repo_directory}/scripts/visforces.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+cp "${repo_directory}/materials/scripts/practice/vis/vis1d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+cp "${repo_directory}/materials/scripts/practice/vis/vis2d.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+cp "${repo_directory}/materials/scripts/practice/vis/vishst.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+cp "${repo_directory}/materials/scripts/practice/vis/visforces.py" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 
 # 4. Change to the data directory
 cd "${results_directory}/${project_directory}/${sample_directory}/${data_directory}"
