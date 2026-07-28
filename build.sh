@@ -8,38 +8,11 @@ specification="-acc_disk_visc"
 use_mpi=0              # 1 = use MPI parallelization, 0 = single block (no MPI)
 num_mpi_procs=4       # Number of MPI processes
 
-use_hdf5=1             # 1 = build with HDF5 output (.athdf), 0 = tab/vtk only
-                       # The visualization scripts read .athdf and .tab alike, but the
-                       # input file now asks for hdf5, so this needs to stay on.
-
 show_progress="yes"
 
 project_directory="runs"
 
 repo_directory=$(pwd)
-
-# Locate the HDF5 headers. Debian/Ubuntu keep the serial build in a subdirectory;
-# other distributions put it straight under /usr.
-hdf5_flags=""
-if [ "$use_hdf5" -eq 1 ]; then
-    for candidate in /usr/lib/x86_64-linux-gnu/hdf5/serial /usr/lib64/hdf5 /usr/local /usr; do
-        if [ -f "${candidate}/include/hdf5.h" ] || [ -f "/usr/include/hdf5/serial/hdf5.h" ]; then
-            if [ -d "${candidate}/include" ]; then
-                hdf5_flags="-hdf5 --hdf5_path=${candidate}"
-            else
-                hdf5_flags="-hdf5"
-            fi
-            break
-        fi
-    done
-    if [ -z "${hdf5_flags}" ]; then
-        echo "Error: use_hdf5=1 but no HDF5 headers found."
-        echo "       Install them (Debian/Ubuntu: sudo apt install libhdf5-dev),"
-        echo "       or set use_hdf5=0 and switch the output blocks in the input"
-        echo "       file back to file_type = tab."
-        exit 1
-    fi
-fi
 
 results_directory="${repo_directory}/results"
 timestamp=$(date +"%Y%m%d-%H%M%S")
@@ -64,13 +37,8 @@ fi
 if [ -f "${build_state_file}" ]; then
     saved_problem=$(grep "^PROBLEM=" "${build_state_file}" | cut -d'=' -f2)
     saved_hash=$(grep "^HASH=" "${build_state_file}" | cut -d'=' -f2)
-    saved_hdf5=$(grep "^HDF5=" "${build_state_file}" | cut -d'=' -f2)
-
-    # The configure flags have to be part of the state. Athena++'s Makefile does not
-    # track header dependencies, so flipping a flag without a rebuild leaves stale
-    # object files and a binary that mixes two configurations.
-    if [ "${saved_problem}" != "${problem}" ] || [ "${saved_hash}" != "${current_hash}" ] \
-       || [ "${saved_hdf5}" != "${use_hdf5}" ]; then
+    
+    if [ "${saved_problem}" != "${problem}" ] || [ "${saved_hash}" != "${current_hash}" ]; then
         need_rebuild=true
         echo "Changes detected (problem or source file changed). Rebuilding..."
     else
@@ -84,18 +52,12 @@ fi
 # 1. Configuration and Build (only if needed)
 if [ "$need_rebuild" = true ]; then
     echo "Configuring with problem: ${problem}"
-    if [ "$use_hdf5" -eq 1 ]; then
-        echo "HDF5 output: ENABLED (${hdf5_flags})"
-    else
-        echo "HDF5 output: DISABLED"
-    fi
-
     if [ "$use_mpi" -eq 1 ]; then
         echo "MPI parallelization: ENABLED"
-        python3 configure.py --prob "${problem}" --coord=cylindrical -mpi ${hdf5_flags}
+        python3 configure.py --prob "${problem}" --coord=cylindrical -mpi
     else
         echo "MPI parallelization: DISABLED (single block mode)"
-        python3 configure.py --prob "${problem}" --coord=cylindrical ${hdf5_flags}
+        python3 configure.py --prob "${problem}" --coord=cylindrical
     fi
 
     echo "Building..."
@@ -105,7 +67,6 @@ if [ "$need_rebuild" = true ]; then
     # Save current state
     echo "PROBLEM=${problem}" > "${build_state_file}"
     echo "HASH=${current_hash}" >> "${build_state_file}"
-    echo "HDF5=${use_hdf5}" >> "${build_state_file}"
     echo "Build completed successfully!"
 else
     echo "Using existing build."
