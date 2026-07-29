@@ -1,45 +1,14 @@
 #!/usr/bin/env python3
-"""
-=============================================================================
-ATHENA++ 1D RADIAL PROFILE VISUALIZER
-=============================================================================
+"""Radial profiles from a 1D or phi-averaged Athena++ run.
 
-Visualize 1D radial profiles from Athena++ simulations with static plots 
-and animations showing temporal evolution.
+Reads .athdf or .tab, whichever the run produced. Output id 1 (prim) by default.
 
-BASIC USAGE:
-    python3 vis1d.py
-        Creates radial profile plot for last frame + evolution animation
+    vis1d.py --data_dir ../data --mode profiles --frame 5
+    vis1d.py --data_dir ../data --mode animation --fps 15
+    vis1d.py --data_dir ../data --title "PP disk, t={time:.4f}"
 
-OPTIONS:
-    --mode {all,profiles,animation}
-        all        - static profiles + animation (default)
-        profiles   - only static radial profiles
-        animation  - only evolution animation
-    
-    --frame N        - process specific frame (default: last)
-    --fps N          - FPS for animations (default: 10)
-    --data_dir PATH  - directory with .tab files
-    --output_dir PATH - output directory (default: ./figs_1d)
-    --subsample N    - use every Nth frame for animation (default: 1)
-    --start_frame N  - first frame for animation
-    --end_frame N    - last frame for animation
-    --logscale       - use log scale for density and pressure
-    
-    --r_min FLOAT    - minimum radius for plotting
-    --r_max FLOAT    - maximum radius for plotting
-
-EXAMPLES:
-    # Basic usage
-    python3 vis1d.py
-    python3 vis1d.py --mode profiles --frame 10
-    python3 vis1d.py --mode animation --subsample 5
-    python3 vis1d.py --logscale
-    
-    # Limit radial range
-    python3 vis1d.py --r_min 0.1 --r_max 2.0
-
-=============================================================================
+Modes: profiles, animation, all.  Common flags: --output_dir, --format, --output_id,
+--frame, --start_frame, --end_frame, --subsample, --title, --r_min, --r_max.
 """
 
 import os

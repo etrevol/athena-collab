@@ -1,16 +1,29 @@
 #!/bin/bash
-set -e  # stop the script immediately if any command fails
+#
+# Configure, build and run one Athena++ simulation.
+#
+#   ./build.sh
+#
+# Rebuilds only when the problem generator or a configure flag changed, then writes
+# results/<project_directory>/sample-<timestamp><specification>/{data,materials}.
+# Edit the variables below to choose what is built and where it lands.
+#
+# Generate the input file first if the physics changed:
+#   python3 scripts/theory/make_athinput.py -o inputs/hydro/athinput.acc_disk_visc
+#   python3 scripts/theory/verify_athinput.py inputs/hydro/athinput.acc_disk_visc
+#
+set -e  # abort on the first failing command
 
-problem="acc_disk_visc" # acc_disk_grav, acc_disk_temp, disk_2d_visc, acc_disk_temp_visc
-input="acc_disk_visc"
-specification="-acc_disk_visc"
+problem="acc_disk_visc"        # problem generator: src/pgen/<problem>.cpp
+input="acc_disk_visc"          # input file: inputs/hydro/athinput.<input>
+specification="-acc_disk_visc" # suffix appended to the run directory name
 
-use_mpi=0              # 1 = use MPI parallelization, 0 = single block (no MPI)
-num_mpi_procs=4       # Number of MPI processes
+use_mpi=0              # 1 = build and run with MPI, 0 = serial
+num_mpi_procs=4        # MPI ranks, used only when use_mpi=1
 
-show_progress="yes"
+show_progress="yes"    # pass -p to athena for the progress bar with ETA
 
-project_directory="runs"
+project_directory="runs"   # subdirectory of results/ that receives the run
 
 repo_directory=$(pwd)
 
@@ -20,11 +33,11 @@ sample_directory="sample-${timestamp}${specification}"
 data_directory="data"
 materials_directory="materials"
 
-# Check if we need to recompile
+# Rebuild only when the generator source or a configure flag changed
 build_state_file=".build_state"
 need_rebuild=false
 
-# Calculate hash of the source file
+# Hash of the generator source, stored in .build_state
 source_file="src/pgen/${problem}.cpp"
 if [ -f "${source_file}" ]; then
     current_hash=$(md5sum "${source_file}" | cut -d' ' -f1)
@@ -49,7 +62,7 @@ else
     echo "First build or state file missing. Building..."
 fi
 
-# 1. Configuration and Build (only if needed)
+# 1. Configure and build
 if [ "$need_rebuild" = true ]; then
     echo "Configuring with problem: ${problem}"
     if [ "$use_mpi" -eq 1 ]; then
@@ -72,11 +85,11 @@ else
     echo "Using existing build."
 fi
 
-# 2. Create working directories
+# 2. Run directory: data/ for output, materials/ for the exact inputs used
 mkdir -p "${results_directory}/${project_directory}/${sample_directory}/${data_directory}"
 mkdir -p "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}"
 
-# 3. Copy files to materials directory
+# 3. Record what this run was made with
 cp "${repo_directory}/inputs/hydro/athinput.${input}" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 cp "${repo_directory}/src/pgen/${problem}.cpp" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
 
@@ -92,13 +105,13 @@ for vis_script in vis1d.py vis2d.py vishst.py visforces.py; do
     fi
 done
 
-# 4. Change to the data directory
+# 4. Athena++ writes into the current directory
 cd "${results_directory}/${project_directory}/${sample_directory}/${data_directory}"
 
-# 5. Clean up old files
+# 5. Drop any output left from an earlier run in this directory
 rm -f *.tab *.athdf *.athdf.xdmf *.hst
 
-# 6. Run Athena
+# 6. Run
 if [ "$use_mpi" -eq 1 ]; then
     echo "Running with ${num_mpi_procs} MPI processes..."
     if [ "$show_progress" = "yes" ]; then
@@ -115,7 +128,7 @@ else
     fi
 fi
 
-# 7. List results
+# 7. Report where everything went
 # ls
 
 echo ""

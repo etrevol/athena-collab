@@ -1,11 +1,8 @@
 //========================================================================================
-// Papaloizou-Pringle torus with alpha viscosity, cylindrical (r, phi), 2D.
+// Papaloizou-Pringle torus with alpha viscosity. Cylindrical (r, phi), 2D.
 //
-//   f(r)  = r_c/r - 0.5*(r_c/r)^2 - C'      rho_d = (f/f_c)^n      p_d = rho_d*beta*f/(r_c*(n+1))
-//
-// The torus (l = const) is superposed on a centrifugally balanced ambient medium, with
-// v_phi from exact radial force balance, so there is no discontinuity at the surface.
-// Background and rationale: materials/reports/ZVIT.md
+// A constant-angular-momentum torus superposed on a centrifugally balanced ambient
+// medium; v_phi follows from exact radial force balance, so the surface is continuous.
 //========================================================================================
 
 // C++ headers
@@ -125,20 +122,7 @@ Real DiskPressureDeriv(Real r) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Square of the azimuthal velocity that puts the *total* state
-//!        (torus + ambient medium) in exact radial force balance:
-//!            rho * v_phi^2 / r = rho * beta / r^2 + dp/dr
-//!        =>  v_phi^2 = beta/r + (r/rho) * dp/dr
-//!
-//! Both limits are recovered exactly:
-//!   - deep inside the torus (rho_atm -> 0):  v_phi^2 -> beta*r_center/r^2, i.e. the
-//!     constant specific angular momentum solution l = sqrt(beta*r_center);
-//!   - in the ambient medium (dp/dr = 0):     v_phi^2 -> beta/r, i.e. Keplerian rotation,
-//!     which is the *exact discrete* equilibrium of Athena++'s cylindrical geometric
-//!     source term when gravity is discretised as in NewtonianGravity() below.
-//!
-//! v_phi^2 is positive everywhere: adding rho_atm to the denominator can only reduce the
-//! magnitude of the (negative) pressure-gradient term relative to the pure torus solution.
+//! v_phi^2 from radial force balance; l = const inside the torus, Keplerian outside.
 Real EquilibriumVphi2(Real r) {
   Real rho = DiskDensity(r) + rho_atm;
   Real v2 = beta_param / r + (r / rho) * DiskPressureDeriv(r);
@@ -195,8 +179,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   f_center = 0.5 - C_prime;
   p_norm   = beta_param / (r_center * (n_poly + 1.0) * std::pow(f_center, n_poly));
 
-  // Ambient medium: a physical equilibrium state kept well above the floors, so they
-  // never activate. Default temperature gives Mach ~5 instead of ~5000 (see ZVIT.md 7.2).
+  // Ambient medium: an equilibrium state kept well above the floors so they never activate.
   rho_atm = pin->GetOrAddReal("problem", "rho_atm", 1.0e-6);
   Real t_atm_frac = pin->GetOrAddReal("problem", "t_atm_frac", 1.0);
   cs2_atm = t_atm_frac * beta_param * f_center / (r_center * (n_poly + 1.0));
@@ -239,8 +222,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     ATHENA_ERROR(msg);
   }
 
-  // The torus surface (rho -> 0, p -> 0, c_s -> 0) must be an *interior* feature and must
-  // never coincide with a radial boundary, otherwise the outflow condition is ill-posed.
+  // The torus surface must stay interior; on a boundary the outflow condition is ill-posed.
   if (Globals::my_rank == 0
       && (mesh_size.x1min >= r_inner || mesh_size.x1max <= r_outer)) {
     std::cout << std::endl
@@ -341,20 +323,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Point-mass gravity, discretised consistently with Athena++'s cylindrical
-//!        geometric source term.
-//!
-//! Athena++ adds the centrifugal/geometric term as
-//!     u(IM1) += dt * coord_src1_i_(i) * (rho*v_phi^2 + p),   coord_src1_i_ = 2/(r_m+r_p)
-//! (Coordinates::AddCoordTermsDivergence, Skinner & Ostriker 2010 eq. 11a).
-//! Writing gravity as -rho*beta/x1v^2 does NOT cancel against that discretisation and
-//! leaves a systematic residual radial force in every cell. Using the same geometric
-//! factor -- exactly as Athena++'s own HydroSourceTerms::PointMass does -- makes a
-//! centrifugally supported ambient medium an *exact* discrete equilibrium.
-//!
-//! The energy update uses the numerical mass flux through the cell faces rather than the
-//! cell-centred rho*v_r, so that the gravitational work stays consistent with the mass
-//! actually advected by the solver.
+//! \brief Point-mass gravity, using the same geometric factor as Athena++'s cylindrical
+//!        source term so that a balanced ambient medium is an exact discrete equilibrium.
+//!        Energy follows the numerical mass flux, not the cell-centred rho*v_r.
 void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
                  const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                  const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
@@ -378,9 +349,7 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
                            * ( x1flux(IDN,k,j,i)   / (rv * rm)
                              + x1flux(IDN,k,j,i+1) / (rv * rp) );
 
-        // Conservative safety net, inside SRC_TERM so it runs before SEND_HYD on both
-        // stages. A pressure violation corrects the ENERGY ONLY; only a density violation
-        // resets the cell, and then just to the floor. Comparisons are strict (see ZVIT.md 7.5).
+        // Safety net, before SEND_HYD: pressure violations correct the energy only.
         Real &d = cons(IDN,k,j,i);
         if (!std::isfinite(d) || d < rho_floor) {
           Real v_phi_atm = std::sqrt(beta_param / rv);
@@ -405,13 +374,8 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Spatially varying alpha viscosity
-//!            nu = alpha * (gamma/sqrt(beta)) * (p/rho) * r^(3/2)
-//!        tapered smoothly to zero in the ambient medium.
-//!
-//! The taper matters: without it the prescription assigns a large kinematic viscosity to
-//! the (essentially empty) ambient medium, which both throttles the timestep and exerts
-//! an artificial viscous torque across the radial boundaries.
+//! \brief Alpha viscosity nu = alpha*(gamma/sqrt(beta))*(p/rho)*r^(3/2), tapered to zero
+//!        in the ambient medium to avoid an artificial torque at the boundaries.
 void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
                    const AthenaArray<Real> &prim, const AthenaArray<Real> &bcc,
                    int is, int ie, int js, int je, int ks, int ke) {
@@ -462,10 +426,8 @@ Real TotalDiskMass(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! Mass accretion rate [M_sun/yr] through the inner radial boundary (positive = inflow).
-//! Only the MeshBlock that actually owns the physical inner x1 boundary contributes; this
-//! is tested against the mesh geometry, which is robust for any MeshBlock decomposition
-//! and does not depend on how the boundary flags happen to be stored.
+//! Mass accretion rate [M_sun/yr] through the inner boundary (positive = inflow).
+//! Only the MeshBlock owning that boundary contributes, tested against the mesh geometry.
 Real AccretionRate(MeshBlock *pmb, int iout) {
   Real mdot_sum = 0.0;
 
@@ -541,14 +503,8 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Inner radial boundary: zero-gradient ("outflow") in rho and p, a diode in v_r
-//!        (matter may leave the domain but never enter it), and rotation extrapolated
-//!        along the equilibrium law v_phi ~ r^(-1/2).
-//!
-//! The v_phi extrapolation matters because the ghost cells lie in the centrifugally
-//! supported ambient medium: copying v_phi verbatim leaves the ghost zones under-rotating,
-//! which drives a spurious inflow across the boundary and, once viscosity is switched on,
-//! a spurious viscous torque as well.
+//! \brief Inner radial boundary: zero-gradient rho and p, diode in v_r (outflow only),
+//!        v_phi extrapolated as r^(-1/2) so the ghost zones stay centrifugally balanced.
 void InnerX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                    FaceField &b, Real time, Real dt,
                    int il, int iu, int jl, int ju, int kl, int ku, int ngh) {

@@ -1,58 +1,15 @@
 #!/usr/bin/env python3
-"""
-=============================================================================
-ATHENA++ RADIAL FORCE BALANCE VISUALIZER
-=============================================================================
+"""Radial force balance from the user output variables (uov).
 
-Visualize the three forces governing Papaloizou-Pringle disk equilibrium,
-averaged over the azimuthal direction (phi), from uov .tab output files.
+Plots f_grav, f_centr, f_press and their sum; in equilibrium the sum is ~0.
+Reads .athdf or .tab. Output id 2 (uov) by default.
 
-Forces (per unit mass, radial direction):
-  f_grav   = -beta / r^2                 (gravity, from NewtonianGravity source)
-  f_centr  = v_phi^2 / r                 (centrifugal)
-  f_press  = -(1/rho) * dP/dr            (pressure gradient)
-  f_sum    = f_grav + f_centr + f_press  (net force, ~0 in equilibrium)
+    visforces.py --data_dir ../data --mode frame --frame 5
+    visforces.py --data_dir ../data --mode all --title "Forces, t={time:.4f}"
 
-BASIC USAGE:
-    python3 visforces.py
-        Plots forces for the last available frame
-
-OPTIONS:
-    --mode {frame,animation,sum,sum_animation,all}
-        frame           - radial profiles of 3 forces for a single frame
-        animation       - animated 3-force radial profiles over all frames
-        sum             - radial profile of net force (f_sum) for a single frame
-        sum_animation   - animated net force radial profile
-        all             - frame + sum for the last frame (default)
-    --frame N        - specific frame number to plot (default: last)
-    --fps N          - FPS for animation (default: 10)
-    --subsample N    - use every Nth frame for animation (default: 1)
-    --start_frame N  - first frame for animation
-    --end_frame N    - last frame for animation
-    --data_dir PATH  - directory with uov .tab files
-    --output_dir PATH - output directory (default: ../figs_forces)
-    --r_min FLOAT    - minimum radius for plotting
-    --r_max FLOAT    - maximum radius for plotting
-    --num_workers N  - parallel CPU workers for animation (default: auto)
-    --log            - use symlog y-axis scale (handles negative forces)
-    --linthresh F    - linear threshold for symlog (default: auto-detect from data)
-
-EXAMPLES:
-    python3 visforces.py
-    python3 visforces.py --mode frame --frame 50
-    python3 visforces.py --mode animation --subsample 5 --fps 15
-    python3 visforces.py --mode all --r_min 0.5 --r_max 4.5
-    python3 visforces.py --mode sum_animation --subsample 10
-    python3 visforces.py --mode frame --log
-    python3 visforces.py --mode animation --log --linthresh 1e4
-
-NOTES:
-    - Reads uov .tab files (output3 in athinput with variable=uov)
-    - Column layout: i, r, j, phi, f_grav, f_centr, f_press, f_sum
-    - Forces are phi-averaged (mean ± std shown as shaded band)
-    - In equilibrium: f_grav + f_centr + f_press ≈ 0
-
-=============================================================================
+Modes: frame, animation, sum, sum_animation, all.  Common flags: --output_dir,
+--format, --output_id, --frame, --start_frame, --end_frame, --subsample, --fps,
+--title, --r_min, --r_max, --log, --linthresh.
 """
 
 import argparse
