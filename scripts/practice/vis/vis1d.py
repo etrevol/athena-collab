@@ -1,20 +1,68 @@
 #!/usr/bin/env python3
-"""Radial profiles from a 1D or phi-averaged Athena++ run.
+"""
+=============================================================================
+ATHENA++ 1D RADIAL PROFILE VISUALIZER
+=============================================================================
 
-Reads .athdf or .tab, whichever the run produced. Output id 1 (prim) by default.
+Visualize 1D radial profiles from Athena++ simulations with static plots 
+and animations showing temporal evolution.
 
-    vis1d.py --data_dir ../data --mode profiles --frame 5
-    vis1d.py --data_dir ../data --mode animation --fps 15
-    vis1d.py --data_dir ../data --title "PP disk, t={time:.4f}"
+BASIC USAGE:
+    python3 vis1d.py
+        Creates radial profile plot for last frame + evolution animation
 
-Modes: profiles, animation, all.  Common flags: --output_dir, --format, --output_id,
---frame, --start_frame, --end_frame, --subsample, --title, --r_min, --r_max.
+OPTIONS:
+    --mode {all,profiles,animation}
+        all        - static profiles + animation (default)
+        profiles   - only static radial profiles
+        animation  - only evolution animation
+    
+    --frame N        - process specific frame (default: last)
+    --fps N          - FPS for animations (default: 10)
+    --data_dir PATH  - directory with .tab files
+    --output_dir PATH - output directory (default: ./figs_1d)
+    --subsample N    - use every Nth frame for animation (default: 1)
+    --start_frame N  - first frame for animation
+    --end_frame N    - last frame for animation
+    --logscale       - use log scale for density and pressure
+    
+    --r_min FLOAT    - minimum radius for plotting
+    --r_max FLOAT    - maximum radius for plotting
+
+EXAMPLES:
+    # Basic usage
+    python3 vis1d.py
+    python3 vis1d.py --mode profiles --frame 10
+    python3 vis1d.py --mode animation --subsample 5
+    python3 vis1d.py --logscale
+    
+    # Limit radial range
+    python3 vis1d.py --r_min 0.1 --r_max 2.0
+
+=============================================================================
 """
 
 import os
 import re
 import sys
 import argparse
+
+# Locate athena_data.py: next to this file when the script was copied into a run
+# directory, otherwise in the repository it was copied from.
+import os as _os, sys as _sys
+_here = _os.path.dirname(_os.path.abspath(__file__))
+for _c in (_here, _os.getcwd()):
+    _p = _c
+    for _ in range(8):
+        if _os.path.isfile(_os.path.join(_p, "athena_data.py")):
+            _sys.path.insert(0, _p); break
+        _cand = _os.path.join(_p, "scripts", "practice", "vis")
+        if _os.path.isfile(_os.path.join(_cand, "athena_data.py")):
+            _sys.path.insert(0, _cand); break
+        _p = _os.path.dirname(_p)
+    else:
+        continue
+    break
 
 import athena_data as _ad
 import numpy as np
@@ -106,7 +154,7 @@ args = parser.parse_args()
 
 # Set paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
-data_dir = args.data_dir if args.data_dir else os.path.join(script_dir, "data")
+data_dir = args.data_dir or _ad.default_data_dir()
 output_dir = args.output_dir if args.output_dir else os.path.join(script_dir, "figs_1d")
 os.makedirs(output_dir, exist_ok=True)
 

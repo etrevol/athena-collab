@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Azimuthally averaged radial profiles and a mass budget by zone.
+"""Radial profile / mass-budget diagnostics from Athena++ .tab (prim) output.
 
-    profile.py <rundir>
-
-Prints rho, p, v_r, v_phi against r for each output frame, plus the mass in the
-inner third / middle / outer third and how it changed. Cells sitting exactly at
-dfloor and pfloor are the signature of a floor-driven leak.
+Reports, per output time: azimuthally averaged rho, p, v_r, v_phi vs r,
+the cumulative mass M(<r), and where mass was lost relative to t=0.
 """
 import sys, glob, os
 import numpy as np
@@ -25,8 +22,7 @@ def read_tab(path):
     return cols, d
 
 def main(run):
-    tabs = sorted((glob.glob(os.path.join(run, '*.out1.*.tab'))
-            or glob.glob(os.path.join(run, 'data', '*.out1.*.tab'))))
+    tabs = sorted(glob.glob(os.path.join(run, '*.out1.*.tab')))
     if not tabs:
         print('no out1 tab files in', run); return
     cols, d0 = read_tab(tabs[0])

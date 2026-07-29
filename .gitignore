@@ -79,3 +79,7 @@ doc/doxy*
 .build_state
 __pycache__/
 *.pyc
+
+# Agent context files
+CLAUDE.md
+**/CLAUDE.md
