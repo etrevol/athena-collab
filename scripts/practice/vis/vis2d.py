@@ -25,7 +25,6 @@ OPTIONS:
     --fps N          - FPS for animations (default: 10)
     --data_dir PATH  - directory with .tab files
     --output_dir PATH - output directory (default: ./figs_2d)
-    --use_gpu        - enable GPU acceleration (auto-enabled if CuPy available)
     --num_workers N  - number of parallel CPU workers (default: 4)
     --subsample N    - use every Nth frame for animation (default: 1)
     --start_frame N  - first frame for animation
@@ -47,7 +46,7 @@ EXAMPLES:
     python3 vis2d.py --mode heatmaps --frame 10
     python3 vis2d.py --fps 15
     python3 vis2d.py --mode polar_animation
-    python3 vis2d.py --mode animation --use_gpu --num_workers 8
+    python3 vis2d.py --mode animation
     
     # Limit radial range (inner disk only)
     python3 vis2d.py --r_min 0.5 --r_max 5.0
@@ -88,33 +87,7 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 import sys
 
-# Try to import CuPy for GPU acceleration
-try:
-    import cupy as cp
-    GPU_AVAILABLE = True
-    print("✓ CuPy detected - GPU acceleration enabled")
-except ImportError:
-    cp = None
-    GPU_AVAILABLE = False
-    print("✗ CuPy not found - using CPU only")
-    print("  Install with: pip install cupy-cuda12x  (adjust for your CUDA version)")
-
-# Progress bar support
-try:
-    from tqdm import tqdm as _tqdm_impl
-    TQDM_AVAILABLE = True
-except ImportError:
-    _tqdm_impl = None
-    TQDM_AVAILABLE = False
-    print("✗ tqdm not found - no progress bars")
-    print("  Install with: pip install tqdm")
-
-def tqdm(iterable, desc="", **kwargs):
-    """Wrapper for tqdm with default settings or passthrough if not available"""
-    if TQDM_AVAILABLE and _tqdm_impl is not None:
-        return _tqdm_impl(iterable, desc=desc, ncols=80, ascii=True, **kwargs)
-    else:
-        return iterable
+from athena_data import tqdm  # shared fallback when tqdm is absent
 
 # =============================================================================
 # CONFIGURATION
@@ -128,7 +101,6 @@ CONFIG = {
     'log_scale_vars': ['density', 'pressure'],
     'radial_bins': 100,
     'polar_resolution': 200,
-    'use_gpu': True,  # Auto-enable if CuPy available
     'num_workers': max(1, cpu_count() - 2),  # Leave 2 cores for system
     'subsample': 1,
     'chunk_size': 100,  # Process frames in chunks to save memory
@@ -197,8 +169,6 @@ parser.add_argument("--fps", type=int, default=CONFIG['fps'],
                     help="FPS for animation")
 parser.add_argument("--colormap", default=CONFIG['colormap'],
                     help="Colormap for visualization")
-parser.add_argument("--use_gpu", action='store_true',
-                    help="Use GPU acceleration (requires CuPy)")
 parser.add_argument("--num_workers", type=int, default=CONFIG['num_workers'],
                     help="Number of parallel CPU workers for frame processing")
 parser.add_argument("--subsample", type=int, default=CONFIG['subsample'],
@@ -240,7 +210,6 @@ os.makedirs(output_dir, exist_ok=True)
 
 CONFIG['fps'] = args.fps
 CONFIG['colormap'] = args.colormap
-CONFIG['use_gpu'] = args.use_gpu and GPU_AVAILABLE
 CONFIG['num_workers'] = min(args.num_workers, cpu_count())
 CONFIG['subsample'] = args.subsample
 CONFIG['r_min'] = args.r_min
@@ -256,7 +225,6 @@ print("="*80)
 print(f"Data directory: {data_dir}")
 print(f"Output directory: {output_dir}")
 print(f"Mode: {args.mode}")
-print(f"GPU acceleration: {'✓ ENABLED' if CONFIG['use_gpu'] else '✗ DISABLED'}")
 print(f"CPU workers: {CONFIG['num_workers']} (parallel frame processing)")
 print(f"Frame subsampling: {CONFIG['subsample']}")
 if args.r_min is not None or args.r_max is not None:
@@ -333,19 +301,12 @@ print(f"Frame range: {available_frames[0]} to {available_frames[-1]}")
 # =============================================================================
 # DATA READING AND PROCESSING FUNCTIONS
 # =============================================================================
-def to_gpu(array):
-    """Transfer array to GPU if GPU is enabled"""
-    if CONFIG['use_gpu'] and cp is not None:
-        return cp.asarray(array)
-    return array
-
 def to_cpu(array):
-    """Transfer array back to CPU"""
-    if CONFIG['use_gpu'] and cp is not None and isinstance(array, cp.ndarray):
-        return cp.asnumpy(array)
+    """No-op; kept so the plotting code reads unchanged."""
     return array
 
-def read_athena_2d_single_block(filename, use_gpu=False):
+
+def read_athena_2d_single_block(filename):
     """Read single block of 2D Athena++ file"""
     with open(filename, 'r') as f:
         header = f.readline()
@@ -369,7 +330,7 @@ def read_athena_2d_single_block(filename, use_gpu=False):
         'vel_z': data[:, 8],
     }
 
-def read_athena_2d(file_list, use_gpu=False):
+def read_athena_2d(file_list):
     """One 2D (r, phi) frame, from .athdf or .tab.
 
     Same keys as before: time, cycle, r, phi, nr, nphi, R, Phi, density,
@@ -378,17 +339,12 @@ def read_athena_2d(file_list, use_gpu=False):
     """
     if isinstance(file_list, str):
         file_list = [file_list]
-    mover = to_gpu if use_gpu else None
-    return _ad.frame_2d(file_list, _ad.INFO["format"], to_gpu=mover)
+    return _ad.frame_2d(file_list, _ad.INFO["format"])
 
-def compute_statistics_gpu(data_array, axis=0):
-    """Compute mean and std using GPU if available"""
-    if CONFIG['use_gpu'] and cp is not None:
-        mean = cp.mean(data_array, axis=axis)
-        std = cp.std(data_array, axis=axis)
-        return to_cpu(mean), to_cpu(std)
-    else:
-        return np.mean(data_array, axis=axis), np.std(data_array, axis=axis)
+def compute_statistics(data_array, axis=None):
+    """Mean and standard deviation of a field."""
+    return np.mean(data_array, axis=axis), np.std(data_array, axis=axis)
+
 
 def filter_data_by_bounds(data, r_min=None, r_max=None, phi_min=None, phi_max=None):
     """Filter 2D data by radial and azimuthal bounds
@@ -448,9 +404,9 @@ def filter_data_by_bounds(data, r_min=None, r_max=None, phi_min=None, phi_max=No
 # =============================================================================
 def _read_frame_for_sampling(args_tuple):
     """Helper function for parallel frame reading (must be top-level for multiprocessing)"""
-    frame, file_list, var, use_gpu = args_tuple
+    frame, file_list, var = args_tuple
     try:
-        data = read_athena_2d(file_list, use_gpu=False)  # Disable GPU in workers
+        data = read_athena_2d(file_list)  # Disable GPU in workers
         var_data = to_cpu(data[var]).ravel()
         return var_data
     except Exception as e:
@@ -459,9 +415,9 @@ def _read_frame_for_sampling(args_tuple):
 
 def _compute_frame_stats(args_tuple):
     """Helper function for parallel statistics computation"""
-    file_list, use_gpu = args_tuple
+    (file_list,) = args_tuple
     try:
-        data = read_athena_2d(file_list, use_gpu=False)
+        data = read_athena_2d(file_list)
         return data
     except Exception as e:
         print(f"Warning: Failed to process frame: {e}")
@@ -523,7 +479,6 @@ def plot_2d_heatmap(data, frame_num, output_dir):
     print(f"    Saved: {filename}")
 
 def plot_radial_profiles(data, frame_num, output_dir):
-    """Radial profiles (averaged over phi) with GPU acceleration"""
     print(f"  Creating radial profiles for frame {frame_num}...")
     
     # Apply bounds filtering
@@ -548,7 +503,7 @@ def plot_radial_profiles(data, frame_num, output_dir):
     
     for var, ax, color, label in variables:
         # Use GPU for statistics if available
-        var_avg, var_std = compute_statistics_gpu(data[var], axis=0)
+        var_avg, var_std = compute_statistics(data[var], axis=0)
         
         ax.plot(r, var_avg, color, linewidth=2, label=label)
         ax.fill_between(r, var_avg - var_std, var_avg + var_std, 
@@ -681,8 +636,7 @@ def create_animation(available_frames, frames_dict, output_dir):
                  fontsize=16, fontweight='bold')
     
     # Read first frame for initialization
-    first_data = read_athena_2d(frames_dict[frames_subset[0]], 
-                                 use_gpu=CONFIG['use_gpu'])
+    first_data = read_athena_2d(frames_dict[frames_subset[0]])
     
     # Apply bounds filtering
     first_data = filter_data_by_bounds(first_data, CONFIG['r_min'], CONFIG['r_max'],
@@ -699,7 +653,7 @@ def create_animation(available_frames, frames_dict, output_dir):
     
     for var in variables:
         # Prepare arguments for parallel processing
-        args_list = [(frame, frames_dict[frame], var, CONFIG['use_gpu']) 
+        args_list = [(frame, frames_dict[frame], var) 
                      for frame in frames_to_sample]
         
         # Use parallel processing if num_workers > 1
@@ -716,7 +670,7 @@ def create_animation(available_frames, frames_dict, output_dir):
             # Sequential processing
             all_data = []
             for frame in tqdm(frames_to_sample, desc=f"  Sampling {var}"):
-                data = read_athena_2d(frames_dict[frame], use_gpu=CONFIG['use_gpu'])
+                data = read_athena_2d(frames_dict[frame])
                 all_data.append(to_cpu(data[var]).ravel())
             all_data = np.concatenate(all_data)
         
@@ -770,8 +724,7 @@ def create_animation(available_frames, frames_dict, output_dir):
     
     def update(frame_idx):
         frame = frames_subset[frame_idx]
-        data = read_athena_2d(frames_dict[frame], 
-                             use_gpu=CONFIG['use_gpu'])
+        data = read_athena_2d(frames_dict[frame])
         
         # Apply bounds filtering
         data = filter_data_by_bounds(data, CONFIG['r_min'], CONFIG['r_max'],
@@ -813,8 +766,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
                  fontsize=16, fontweight='bold', y=0.98)
     
     # Read first frame to determine normalization
-    first_data = read_athena_2d(frames_dict[frames_subset[0]],
-                                use_gpu=CONFIG['use_gpu'])
+    first_data = read_athena_2d(frames_dict[frames_subset[0]])
     
     # Apply bounds filtering
     first_data = filter_data_by_bounds(first_data, CONFIG['r_min'], CONFIG['r_max'],
@@ -830,7 +782,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
     
     for var in variables:
         # Prepare arguments for parallel processing
-        args_list = [(frame, frames_dict[frame], var, CONFIG['use_gpu']) 
+        args_list = [(frame, frames_dict[frame], var) 
                      for frame in frames_to_sample]
         
         # Use parallel processing if num_workers > 1
@@ -847,7 +799,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
             # Sequential processing
             all_data = []
             for frame in tqdm(frames_to_sample, desc=f"  Sampling {var}"):
-                data = read_athena_2d(frames_dict[frame], use_gpu=CONFIG['use_gpu'])
+                data = read_athena_2d(frames_dict[frame])
                 all_data.append(to_cpu(data[var]).ravel())
             all_data = np.concatenate(all_data)
         
@@ -906,8 +858,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
     
     def update(frame_idx):
         frame = frames_subset[frame_idx]
-        data = read_athena_2d(frames_dict[frame],
-                             use_gpu=CONFIG['use_gpu'])
+        data = read_athena_2d(frames_dict[frame])
         
         # Apply bounds filtering
         data = filter_data_by_bounds(data, CONFIG['r_min'], CONFIG['r_max'],
@@ -958,7 +909,7 @@ def main():
         file_list = frames_dict[frame_num]
         if len(file_list) > 1:
             print(f"  Reading {len(file_list)} block(s)...")
-        data = read_athena_2d(file_list, use_gpu=CONFIG['use_gpu'])
+        data = read_athena_2d(file_list)
         
         if args.mode in ['all', 'heatmaps']:
             plot_2d_heatmap(data, frame_num, output_dir)

@@ -293,3 +293,81 @@ def format_title(default, template, **fields):
         print(f"  Warning: --title {template!r} could not be formatted ({exc}); "
               f"available fields: {', '.join(sorted(fields))}. Using the default.")
         return default
+
+
+# ---------------------------------------------------------------------------
+# helpers shared by the plotting scripts
+# ---------------------------------------------------------------------------
+
+try:                                            # optional dependency
+    from tqdm import tqdm                        # noqa: F401
+except ImportError:
+    def tqdm(iterable, desc="", **kwargs):
+        """Minimal stand-in so the scripts do not depend on tqdm."""
+        total = kwargs.get("total") or (len(iterable) if hasattr(iterable, "__len__") else None)
+        for i, item in enumerate(iterable):
+            if total:
+                print(f"\r  {desc} {i + 1}/{total}", end="", flush=True)
+            yield item
+        if total:
+            print()
+
+
+def add_common_args(parser, output_id=1, with_frames=True):
+    """Attach the arguments every plotting script shares.
+
+    Keeping them in one place is what stops --title existing on three scripts out
+    of four, which is how they drifted apart before.
+    """
+    parser.add_argument("--data_dir", default=None,
+                        help="directory with .athdf or .tab files (default: ../data)")
+    parser.add_argument("--output_dir", default=None, help="where to write figures")
+    parser.add_argument("--format", default=None, choices=["athdf", "tab"],
+                        help="force an input format (default: auto, prefers .athdf)")
+    parser.add_argument("--output_id", type=int, default=output_id,
+                        help=f"Athena++ output block to read (default: {output_id})")
+    parser.add_argument("--title", default=None,
+                        help="figure title, centred at the top; a format string over "
+                             "{time}, {cycle}, {frame}, {base}")
+    if with_frames:
+        parser.add_argument("--frame", type=int, default=None, help="single frame to plot")
+        parser.add_argument("--start_frame", type=int, default=None)
+        parser.add_argument("--end_frame", type=int, default=None)
+        parser.add_argument("--subsample", type=int, default=1, help="take every Nth frame")
+        parser.add_argument("--fps", type=int, default=10, help="animation frame rate")
+    return parser
+
+
+def select_frames(frames, first=None, last=None, stride=1):
+    """Frame numbers after applying --start_frame / --end_frame / --subsample."""
+    out = sorted(frames)
+    if first is not None:
+        out = [f for f in out if f >= first]
+    if last is not None:
+        out = [f for f in out if f <= last]
+    return out[::max(1, stride)]
+
+
+def clip_radius(data, r_min=None, r_max=None):
+    """Restrict a frame to a radial range, in place on a copy."""
+    if r_min is None and r_max is None:
+        return data
+    r = np.asarray(data["r"])
+    keep = np.ones(r.shape, dtype=bool)
+    if r_min is not None:
+        keep &= r >= r_min
+    if r_max is not None:
+        keep &= r <= r_max
+    out = dict(data)
+    out["r"] = r[keep]
+    for k, v in data.items():
+        if k in ("time", "cycle", "r", "phi", "nr", "nphi"):
+            continue
+        a = np.asarray(v)
+        if a.ndim == 1 and a.shape == r.shape:
+            out[k] = a[keep]
+        elif a.ndim == 2 and a.shape[1] == r.shape[0]:
+            out[k] = a[:, keep]
+    if "nr" in out:
+        out["nr"] = int(keep.sum())
+    return out

@@ -56,22 +56,7 @@ from matplotlib import animation
 import warnings
 warnings.filterwarnings('ignore')
 
-# Progress bar support
-try:
-    from tqdm import tqdm as _tqdm_impl
-    TQDM_AVAILABLE = True
-except ImportError:
-    _tqdm_impl = None
-    TQDM_AVAILABLE = False
-    print("✗ tqdm not found - no progress bars")
-    print("  Install with: pip install tqdm")
-
-def tqdm(iterable, desc="", **kwargs):
-    """Wrapper for tqdm with default settings or passthrough if not available"""
-    if TQDM_AVAILABLE and _tqdm_impl is not None:
-        return _tqdm_impl(iterable, desc=desc, ncols=80, ascii=True, **kwargs)
-    else:
-        return iterable
+from athena_data import tqdm  # shared fallback when tqdm is absent
 
 # =============================================================================
 # CONFIGURATION

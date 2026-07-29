@@ -71,18 +71,7 @@ from multiprocessing import Pool, cpu_count
 
 warnings.filterwarnings('ignore')
 
-# Try tqdm for progress bars
-try:
-    from tqdm import tqdm as _tqdm_impl
-    TQDM_AVAILABLE = True
-except ImportError:
-    _tqdm_impl = None
-    TQDM_AVAILABLE = False
-
-def tqdm(iterable, desc="", **kwargs):
-    if TQDM_AVAILABLE and _tqdm_impl is not None:
-        return _tqdm_impl(iterable, desc=desc, ncols=80, ascii=True, **kwargs)
-    return iterable
+from athena_data import tqdm  # shared fallback when tqdm is absent
 
 # =============================================================================
 # CONFIGURATION
