@@ -769,10 +769,11 @@ for i in "${!TESTS[@]}"; do
     }
   fi
 
-  # Copy visualization scripts alongside the input file
-  for _vis in vis1d.py vis2d.py vishst.py; do
-    [[ -f "${REPO_DIR}/scripts/${_vis}" ]] && \
-      cp "${REPO_DIR}/scripts/${_vis}" "${test_dir}/"
+  # Copy the plotting scripts next to the data so the test directory is self-contained.
+  # athena_data.py is the reader they all import and must travel with them.
+  for _vis in athena_data.py vis1d.py vis2d.py vishst.py visforces.py; do
+    [[ -f "${REPO_DIR}/scripts/practice/vis/${_vis}" ]] && \
+      cp "${REPO_DIR}/scripts/practice/vis/${_vis}" "${test_dir}/"
   done
 
   # Prepare modified input file (b_* keys are silently skipped by apply_params)

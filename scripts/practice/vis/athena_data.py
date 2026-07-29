@@ -23,29 +23,41 @@ Output ids follow the input file: out1 is normally `variable = prim`, out2 is
 `variable = uov` (the user output variables). Pass `output_id` accordingly.
 """
 
+import glob
 import os
 import re
 import sys
 
 import numpy as np
 
-# athena_read.py lives in vis/python/ at the repository root
+# athena_read.py ships with Athena++ in vis/python/. Walk up from this file and from
+# the working directory so the module also works when copied into a run directory.
 _HERE = os.path.dirname(os.path.abspath(__file__))
-for _cand in (
-    os.path.join(_HERE, "..", "..", "..", "vis", "python"),   # scripts/practice/vis -> repo
-    os.path.join(_HERE, "..", "..", "vis", "python"),
-    os.path.join(_HERE, "vis", "python"),
-):
-    _cand = os.path.abspath(_cand)
-    if os.path.isfile(os.path.join(_cand, "athena_read.py")):
-        if _cand not in sys.path:
-            sys.path.insert(0, _cand)
-        break
-else:                                                          # pragma: no cover
+
+
+def _find_athena_read():
+    for start in (_HERE, os.getcwd()):
+        p = start
+        for _ in range(10):
+            cand = os.path.join(p, "vis", "python")
+            if os.path.isfile(os.path.join(cand, "athena_read.py")):
+                return cand
+            if os.path.isfile(os.path.join(p, "athena_read.py")):
+                return p
+            parent = os.path.dirname(p)
+            if parent == p:
+                break
+            p = parent
+    return None
+
+
+_ar = _find_athena_read()
+if _ar is None:                                                # pragma: no cover
     raise ImportError(
-        "athena_read.py not found. It ships with Athena++ in vis/python/; this "
-        "module expects to live in scripts/practice/vis/ inside the repository."
-    )
+        "athena_read.py not found. It ships with Athena++ in vis/python/. Run from "
+        "inside the repository, or copy athena_read.py next to this file.")
+if _ar not in sys.path:
+    sys.path.insert(0, _ar)
 
 import athena_read  # noqa: E402
 
@@ -371,3 +383,19 @@ def clip_radius(data, r_min=None, r_max=None):
     if "nr" in out:
         out["nr"] = int(keep.sum())
     return out
+
+
+def default_data_dir(start=None):
+    """Where the output most likely is, relative to where the script was started.
+
+    Covers both layouts the run directories use: sweep.sh puts the plotting scripts
+    next to a data/ subdirectory, build.sh puts them in materials/ beside it. Falls
+    back to the current directory, which is where a bare `athena -i ...` writes.
+    """
+    base = start or os.getcwd()
+    for cand in ("data", os.path.join("..", "data"), "."):
+        p = os.path.abspath(os.path.join(base, cand))
+        if os.path.isdir(p) and (
+                glob.glob(os.path.join(p, "*.athdf")) or glob.glob(os.path.join(p, "*.tab"))):
+            return p
+    return os.path.abspath(os.path.join(base, "data"))

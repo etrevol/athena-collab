@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Mass, energy and angular-momentum conservation across runs.
-
-    analyze.py <rundir> [<rundir> ...]
-    analyze.py results/runs/*/
-
-Prints dm/m0, dE/E0, dL/L0 and the peak radial kinetic energy for each .hst found.
-With alpha = 0 a healthy run keeps |dm/m0| below 1e-4 over 100 orbits.
-"""
+"""Compare mass conservation / energy health across runs in results/AI/runs."""
 import sys, os, glob
 import numpy as np
 
@@ -24,8 +17,7 @@ def read_hst(path):
     return names, d
 
 def report(run_dir):
-    hst = (glob.glob(os.path.join(run_dir, '*.hst'))
-           or glob.glob(os.path.join(run_dir, 'data', '*.hst')))
+    hst = glob.glob(os.path.join(run_dir, '*.hst'))
     if not hst:
         return None
     names, d = read_hst(hst[0])
