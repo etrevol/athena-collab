@@ -1,48 +1,14 @@
 #!/usr/bin/env python3
-"""
-=============================================================================
-ATHENA++ HISTORY FILE VISUALIZER
-=============================================================================
+"""Time series from an Athena++ history (.hst) file.
 
-Visualize time series data from Athena++ .hst (history) files.
+Format-independent: the history file is plain text whatever the run wrote.
 
-BASIC USAGE:
-    python3 vishst.py
-        Creates plots for disk_mass and mdot_in with log scale (default)
+    vishst.py --hst_file ../data/acc_disk_visc.hst
+    vishst.py --hst_file ../data/x.hst --mode all --grid
+    vishst.py --hst_file ../data/x.hst --title "PP disk - {label}"
 
-OPTIONS:
-    --mode {default,all,custom}
-        default - plot disk_mass and mdot_in only (default)
-        all     - plot all variables in the history file
-        custom  - plot specific variables (use --vars)
-    
-    --vars VAR1 VAR2 ...     - specific variables to plot (for custom mode)
-    --hst_file PATH          - path to .hst file (default: auto-detect in ../data)
-    --output_dir PATH        - output directory (default: ../figs_hst)
-    --linear_scale VAR1 VAR2 - variables to plot with linear scale (default: log)
-    --grid                   - show grid on plots
-    --dpi N               - DPI for saved figures (default: 150)
-    --figsize W H         - figure size in inches (default: 10 6)
-    --style {default,seaborn,bmh,ggplot}
-                          - matplotlib style (default: seaborn-v0_8-darkgrid)
-
-EXAMPLES:
-    # Basic usage (disk_mass and mdot_in) - logarithmic scale by default
-    python3 vishst.py
-    
-    # Plot all variables
-    python3 vishst.py --mode all
-    
-    # Plot specific variables
-    python3 vishst.py --mode custom --vars mass tot-E disk_mass
-    
-    # Custom styling
-    python3 vishst.py --grid --dpi 200 --figsize 12 8
-    
-    # Linear scale for specific variables (default is log scale)
-    python3 vishst.py --mode all --linear_scale disk_mass mass
-
-=============================================================================
+Modes: default (disk_mass, mdot_in), all, custom (with --vars).
+Flags: --output_dir, --linear_scale, --grid, --dpi, --figsize, --style, --title.
 """
 
 import os

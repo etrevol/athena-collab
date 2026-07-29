@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Scan all Athena++ .hst files under results/ and report mass-conservation health."""
+"""Scan every .hst under a directory for mass-conservation health.
+
+    scan_hst.py [path ...]        # default: results/**/*.hst
+
+Reports dm/m0 and m_max/m0 per run, so a diverging run stands out at a glance.
+"""
 import sys, glob, os
 import numpy as np
 

@@ -1,72 +1,16 @@
 #!/usr/bin/env python3
-"""
-=============================================================================
-ATHENA++ 2D DATA VISUALIZER
-=============================================================================
+"""2D maps, polar views and animations from an Athena++ (r, phi) run.
 
-Visualize 2D Athena++ simulation data with heatmaps, profiles, and animations
-in both Cartesian and polar coordinates.
+Reads .athdf or .tab, whichever the run produced. Output id 1 (prim) by default.
 
-BASIC USAGE:
-    python3 vis2d.py
-        Creates all plots + 2 animations for the last frame
+    vis2d.py --data_dir ../data --mode heatmaps --frame 5
+    vis2d.py --data_dir ../data --mode polar_animation --fps 15
+    vis2d.py --data_dir ../data --mode all --title "PP disk, t={time:.4f}"
 
-OPTIONS:
-    --mode {all,heatmaps,radial,polar,azimuthal,animation,polar_animation}
-        all             - all plots + both animations (default)
-        heatmaps        - 2D heatmaps of all variables
-        radial          - radial profiles (averaged over φ)
-        polar           - polar coordinate plots
-        azimuthal       - azimuthal profiles (at different radii)
-        animation       - Cartesian animation
-        polar_animation - polar animation
-    
-    --frame N        - process specific frame (default: last)
-    --fps N          - FPS for animations (default: 10)
-    --data_dir PATH  - directory with .tab files
-    --output_dir PATH - output directory (default: ./figs_2d)
-    --num_workers N  - number of parallel CPU workers (default: 4)
-    --subsample N    - use every Nth frame for animation (default: 1)
-    --start_frame N  - first frame for animation
-    --end_frame N    - last frame for animation
-    
-    --r_min FLOAT    - minimum radius for plotting (filters data)
-    --r_max FLOAT    - maximum radius for plotting (filters data)
-    --phi_min FLOAT  - minimum azimuthal angle in radians (filters data)
-    --phi_max FLOAT  - maximum azimuthal angle in radians (filters data)
-    
-    --vmin_percentile FLOAT - lower percentile for color scale (default: 2.0)
-    --vmax_percentile FLOAT - upper percentile for color scale (default: 98.0)
-                              Use percentiles to filter extreme outliers and
-                              improve color contrast during normal evolution
-
-EXAMPLES:
-    # Basic usage
-    python3 vis2d.py --subsample 10
-    python3 vis2d.py --mode heatmaps --frame 10
-    python3 vis2d.py --fps 15
-    python3 vis2d.py --mode polar_animation
-    python3 vis2d.py --mode animation
-    
-    # Limit radial range (inner disk only)
-    python3 vis2d.py --r_min 0.5 --r_max 5.0
-    
-    # Limit azimuthal range (first quadrant)
-    python3 vis2d.py --phi_min 0 --phi_max 1.57
-    
-    # Combined bounds for animation
-    python3 vis2d.py --mode animation --r_min 1.0 --r_max 3.0 --phi_min 0 --phi_max 3.14
-    
-    # Outer disk region only
-    python3 vis2d.py --mode radial --r_min 2.0 --frame 500
-    
-    # Better color contrast (filter more extreme outliers)
-    python3 vis2d.py --mode polar_animation --vmin_percentile 5 --vmax_percentile 95
-    
-    # Keep more dynamic range (include more extreme values)
-    python3 vis2d.py --mode animation --vmin_percentile 1 --vmax_percentile 99
-
-=============================================================================
+Modes: heatmaps, radial, polar, azimuthal, animation, polar_animation, all.
+Common flags: --output_dir, --format, --output_id, --frame, --start_frame,
+--end_frame, --subsample, --fps, --title, --r_min/--r_max, --phi_min/--phi_max,
+--colormap, --num_workers.
 """
 
 import argparse
