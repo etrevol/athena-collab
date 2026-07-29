@@ -1,18 +1,11 @@
 //========================================================================================
-// Thermally-scaled Papaloizou-Pringle accretion disk with alpha viscosity.
+// Papaloizou-Pringle torus with alpha viscosity, cylindrical (r, phi), 2D.
 //
-// Cylindrical coordinates (r, phi, z), 2D equatorial slice.
+//   f(r)  = r_c/r - 0.5*(r_c/r)^2 - C'      rho_d = (f/f_c)^n      p_d = rho_d*beta*f/(r_c*(n+1))
 //
-// Equilibrium torus (constant specific angular momentum l = sqrt(beta*r_center)):
-//     f(r)   = r_c/r - 0.5*(r_c/r)^2 - C'
-//     rho_d  = (f/f_c)^n           f_c = 0.5 - C'     n = 1/(gamma-1)
-//     p_d    = rho_d * beta*f/(r_c*(n+1))
-// embedded in a static, centrifugally balanced ambient medium ("atmosphere")
-//     rho_a  = rho_atm = const,    p_a = rho_atm*cs2_atm = const,   v_phi = sqrt(beta/r)
-//
-// The initial state is the *sum* of the two, with v_phi obtained from exact radial
-// force balance, so the torus, the ambient medium, and the transition between them are
-// all in equilibrium and no artificial discontinuity is introduced (see EquilibriumVphi2).
+// The torus (l = const) is superposed on a centrifugally balanced ambient medium, with
+// v_phi from exact radial force balance, so there is no discontinuity at the surface.
+// Background and rationale: materials/reports/ZVIT.md
 //========================================================================================
 
 // C++ headers
@@ -73,7 +66,7 @@ namespace {
   Real p_norm;       // beta / (r_center*(n+1)*f_center^n), so that p_d = p_norm*f^(n+1)
 
   // Physical Scaling Factors (for history output)
-  Real r_g;          // Gravitational radius [cm]
+  Real r_g;          // Schwarzschild radius 2GM/c^2 [cm]
   Real L_0;          // Length scale [cm]
   Real V_0;          // Velocity scale (sound speed) [cm/s]
   Real T_scale;      // Time scale [s]
@@ -170,11 +163,11 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   n_poly = 1.0 / (gamma_gas - 1.0);
 
-  // Calculate isothermal sound speed (cs0) in CGS [cm/s]
+  // Adiabatic sound speed at the reference temperature [cm/s]
   Real cs0_sq = (gamma_gas * K_B * T_0) / (mu_gas * M_P);
   Real cs0    = std::sqrt(cs0_sq);
 
-  // Calculate physical scaling factors
+  // Physical scaling factors
   r_g = 2.0 * G_GRAV * M_bh * M_SUN / (C_LIGHT * C_LIGHT);
   L_0 = chi_param * r_g;
   V_0 = cs0;
@@ -202,21 +195,14 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   f_center = 0.5 - C_prime;
   p_norm   = beta_param / (r_center * (n_poly + 1.0) * std::pow(f_center, n_poly));
 
-  // ------------------------------------------------------------------------------------
-  // Ambient medium. This is a *physical* equilibrium state, deliberately kept well above
-  // the numerical floors so that the floors never become active during a healthy run.
-  // The default temperature equals the temperature at the torus density maximum, which
-  // keeps the ambient Mach number at O(5) instead of O(5000) and therefore keeps the
-  // recovery of pressure from the total energy well conditioned.
-  // ------------------------------------------------------------------------------------
+  // Ambient medium: a physical equilibrium state kept well above the floors, so they
+  // never activate. Default temperature gives Mach ~5 instead of ~5000 (see ZVIT.md 7.2).
   rho_atm = pin->GetOrAddReal("problem", "rho_atm", 1.0e-6);
   Real t_atm_frac = pin->GetOrAddReal("problem", "t_atm_frac", 1.0);
   cs2_atm = t_atm_frac * beta_param * f_center / (r_center * (n_poly + 1.0));
   p_atm   = rho_atm * cs2_atm;
 
-  // Alpha viscosity models turbulent transport inside the disk body; it is switched off
-  // smoothly in the ambient medium (and hence at the radial boundaries), which removes
-  // any artificial viscous torque acting through the ghost zones.
+  // Viscosity is tapered off in the ambient, removing artificial torque at the boundaries.
   visc_rho_cut = pin->GetOrAddReal("problem", "visc_rho_cut", 10.0 * rho_atm);
 
   if (rho_atm <= rho_floor || p_atm <= press_floor) {
@@ -228,13 +214,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     ATHENA_ERROR(msg);
   }
 
-  // Athena++ only evaluates the viscous fluxes when <problem>/nu_iso > 0 (see
-  // HydroDiffusion::CalcDiffusionFlux). An enrolled coefficient function is silently
-  // ignored otherwise, so alpha > 0 with nu_iso = 0 would quietly run as an inviscid disk.
-  // The mirror trap, which is just as easy to fall into: nu_iso > 0 with alpha == 0 does
-  // NOT give an inviscid run. Athena++ then applies a CONSTANT kinematic viscosity equal
-  // to nu_iso, because DiskViscosity() is only enrolled when alpha > 0 and so never
-  // overwrites it. An "alpha = 0" control run therefore needs nu_iso = 0 as well.
+  // Athena++ gates ViscousFluxIso on nu_iso, so alpha > 0 with nu_iso = 0 runs inviscid.
+  // Mirror trap: nu_iso > 0 with alpha = 0 applies a CONSTANT nu, it is not inviscid.
   if (alpha_visc <= 0.0 && nu_iso > 0.0 && Globals::my_rank == 0) {
     std::cout << std::endl
               << "  *** WARNING: alpha = 0 but nu_iso = " << nu_iso << " > 0." << std::endl
@@ -397,25 +378,9 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
                            * ( x1flux(IDN,k,j,i)   / (rv * rm)
                              + x1flux(IDN,k,j,i+1) / (rv * rp) );
 
-        // ----------------------------------------------------------------------------
-        // Conservative safety net, applied inside SRC_TERM, i.e. *before* SEND_HYD, so
-        // that a neighbouring MeshBlock can never receive an unphysical ghost state.
-        // (UserWorkInLoop runs only after stage 2 and is therefore too late; this is the
-        // timing argument of docs/vl2-atmosphere-fix.md, which still applies.)
-        //
-        // Unlike a blanket "reset the cell to the floor", this mirrors what Athena++'s
-        // own EquationOfState::ConservedToPrimitive does:
-        //   * a *pressure* violation is repaired by correcting the ENERGY ONLY, leaving
-        //     density and momentum untouched -> mass and momentum are conserved;
-        //   * only a genuine density violation resets the cell, and then by the smallest
-        //     possible amount -- exactly up to the floor, never up to rho_atm -- so that
-        //     the repair cannot manufacture matter;
-        //   * the repaired cell is left centrifugally balanced (v_r = 0,
-        //     v_phi = sqrt(beta/r_v)), which is a stationary state of the discretisation
-        //     below and therefore does not re-trigger on the next stage.
-        // The comparisons are strict (<), so a cell that legitimately sits at the floor
-        // is not re-initialised on every stage.
-        // ----------------------------------------------------------------------------
+        // Conservative safety net, inside SRC_TERM so it runs before SEND_HYD on both
+        // stages. A pressure violation corrects the ENERGY ONLY; only a density violation
+        // resets the cell, and then just to the floor. Comparisons are strict (see ZVIT.md 7.5).
         Real &d = cons(IDN,k,j,i);
         if (!std::isfinite(d) || d < rho_floor) {
           Real v_phi_atm = std::sqrt(beta_param / rv);

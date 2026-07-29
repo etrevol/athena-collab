@@ -1,171 +1,104 @@
 <comment>
-problem   = Thermally-Scaled Papaloizou-Pringle Accretion Disk with Spatially-Varying Viscosity
-configure = --prob=acc_disk_temp_visc --coord=cylindrical
+problem   = Thermally-scaled Papaloizou-Pringle accretion disk with alpha viscosity
+configure = --prob=acc_disk_visc --coord=cylindrical
+generated = scripts/theory/make_athinput.py
 
 <job>
-problem_id = acc_disk_visc
+problem_id = acc_disk_visc   # prefix of every output file
 
 <output1>
-file_type  = tab        # Table output format for 1D/2D diagnostics
-variable   = prim       # Output primitive variables (rho, v, p)
-dt         = 1.01227e-03      # Output timestep (every 0.1 frames per orbit)
-dcycle     = -1         # Disable cycle-based output
+file_type  = tab         # primitive variables (rho, press, vel1..3)
+variable   = prim
+dt         = 0.00101227  # output interval, 10 frames per orbit
+dcycle     = -1          # cycle-based output disabled
 
 <output2>
-file_type  = tab        # User output variables
-variable   = uov        # f_grav (col4), f_centr (col5), f_press (col6), f_sum (col7)
-dt         = 1.01227e-03      # Output timestep
-dcycle     = -1         # Disable cycle-based output
+file_type  = tab         # user variables: f_grav, f_centr, f_press, f_sum
+variable   = uov
+dt         = 0.00101227  # output interval
+dcycle     = -1          # cycle-based output disabled
 
 <output3>
-file_type  = hst        # History file (time series of global quantities)
-dt         = 1.01227e-03      # Output timestep (every 0.01 orbits for fine tracking)
-dcycle     = -1         # Disable cycle-based output
-# Athena++ defaults to %12.5e, i.e. 6 significant digits. That is not enough here:
-# disk_mass ~ 1.02e+02 while the whole physical change over 100 orbits is ~2.5e-3 M_sun,
-# so the printed value can only take ~3 distinct values and the plotted curve degenerates
-# into a square wave dithering between them. This is an output artefact, not a physical
-# oscillation. Full double precision removes it.
-data_format = %24.16e
+file_type  = hst         # global time series (mass, energy, disk_mass, mdot_in)
+dt         = 0.00101227  # output interval
+dcycle     = -1          # cycle-based output disabled
+data_format = %24.16e    # 6 digits is too few: disk_mass varies in the 5th
 
 <time>
-cfl_number = 0.4        # Strict CFL for stability during viscous shearing
-nlim       = -1         # No cycle limit
-tlim       = 1.01227e+00     # Total simulation duration (100 orbits; P_orb = 1.012266e-02)
-integrator = vl2        # Van Leer predictor-corrector (2nd order)
-xorder     = 2          # Piecewise linear reconstruction
-ncycle_out = 50         # Console output frequency
+cfl_number = 0.4         # Courant number
+nlim       = -1          # no cycle limit
+tlim       = 1.01227     # stop time, 100 orbits of P_orb = 0.0101227
+integrator = vl2         # Van Leer predictor-corrector, 2nd order
+xorder     = 2           # piecewise linear reconstruction
+ncycle_out = 50          # console progress interval
 
 <mesh>
-# Radial direction (x1 = r)
-# IMPORTANT: the domain must strictly ENCLOSE the torus, x1min < r_in and x1max > r_out.
-# The torus surface (rho -> 0, p -> 0, c_s -> 0) has to be an interior feature; putting it
-# on the boundary makes the outflow condition ill-posed and drains the disk.
-#   r_in = 0.563508, r_out = 4.436492  ->  ~7 buffer cells inside, ~38 outside
-nx1    = 176            # dr = 0.029545, i.e. the same radial resolution as before
-x1min  = 0.35           # Inner boundary (< r_inner)
-x1max  = 5.55           # Outer boundary (> r_outer)
-x1rat  = 1.0            # Uniform spacing
-ix1_bc = user           # User boundary condition
-ox1_bc = user           # User boundary condition
+nx1    = 176           # radial cells, dr = 0.0295455
+x1min  = 0.35          # inner edge, must be < r_in = 0.563508 (7 cells of margin)
+x1max  = 5.55          # outer edge, must be > r_out = 4.43649 (37 cells of margin)
+x1rat  = 1.0           # uniform radial spacing
+ix1_bc = user          # diode outflow, v_phi extrapolated as r^(-1/2)
+ox1_bc = user          # diode outflow, v_phi extrapolated as r^(-1/2)
 
-# Azimuthal direction (x2 = phi)
-nx2    = 128            # Azimuthal resolution for 2D mode growth
-x2min  = 0.0            
-x2max  = 6.28318530718  # 2*pi
-ix2_bc = periodic       
-ox2_bc = periodic
+nx2    = 128           # azimuthal cells over the full 2*pi
+x2min  = 0.0           # phi lower bound
+x2max  = 6.28318530718 # phi upper bound, 2*pi
+ix2_bc = periodic      # periodic in phi
+ox2_bc = periodic      # periodic in phi
 
-# Vertical direction (x3 = z)
-nx3    = 1              # 2D Simulation (equatorial plane)
-x3min  = -0.5
-x3max  = 0.5
-ix3_bc = periodic
-ox3_bc = periodic
+nx3    = 1             # 2D run in the equatorial plane
+x3min  = -0.5          # z lower bound
+x3max  = 0.5           # z upper bound, slab of unit height
+ix3_bc = periodic      # unused in 2D
+ox3_bc = periodic      # unused in 2D
 
 <meshblock>
-nx1 = 176                # MeshBlock size (for MPI parallelization)
-nx2 = 128                # Recommended: 32-64 cells per dimension
-nx3 = 1
+nx1 = 176           # MeshBlock radial size
+nx2 = 128           # MeshBlock azimuthal size
+nx3 = 1             # MeshBlock vertical size
 
 <hydro>
-gamma  = 1.3            # Adiabatic index
-# The floors are a hard numerical safety net ONLY. The physical background is the ambient
-# medium (rho_atm / p_atm below), which sits far above them; in a healthy run the floors
-# must never become active.
-dfloor = 1.0e-12        # Density vacuum floor  (1e6 x below rho_atm)
-pfloor = 1.0e-10        # Pressure vacuum floor
+gamma  = 1.3           # adiabatic index
+dfloor = 1e-12         # density floor, a safety net only, 1e+08x below rho_atm
+pfloor = 1e-10         # pressure floor, a safety net only
 
 <problem>
-# Geometric configuration
-r_center = 1.0          # Dimensionless location of the disk center (R_0/r_0)
-C_prime  = 0.2          # Geometric thickness parameter (< 0.5)
-# NOTE: Athena++ only evaluates viscous fluxes when nu_iso > 0 (HydroDiffusion gates
-# ViscousFluxIso on it). To use the alpha prescription, set BOTH alpha > 0 and nu_iso > 0;
-# nu_iso then only acts as an "enable" switch, its value is overwritten by DiskViscosity.
-# Beware the mirror trap too: nu_iso > 0 with alpha = 0 is NOT an inviscid run, it applies
-# a CONSTANT nu = nu_iso. An alpha = 0 control run needs nu_iso = 0 as well.
-nu_iso   = 1.0          # Kinematic viscosity (set > 0 to enable viscous transport)
-alpha    = 0.001          # Alpha viscosity parameter (spatially-varying: ν̃ = α·γ/√β·(p̃/ρ̃)·r̃^(3/2))
+r_center = 1.0         # radius of the density maximum
+C_prime  = 0.2         # torus thickness parameter, must be < 0.5
+nu_iso   = 1           # enables viscosity; value overwritten by DiskViscosity
+alpha    = 0.001       # Shakura-Sunyaev alpha; needs nu_iso > 0 to take effect
 
-# Ambient medium ("atmosphere") surrounding the torus. This is a genuine, centrifugally
-# balanced equilibrium state (v_phi = sqrt(beta/r)), not a floor: it gives the torus
-# surface somewhere to sit and keeps the ambient Mach number at O(5) instead of O(5000).
-# rho_atm also sets how sharp the torus SURFACE is on the grid. Because rho ~ (r-r_in)^n,
-# the width of the surface is fixed by rho_atm, NOT by dr -- refining the radial grid does
-# not resolve it. This matters once viscosity is ON: the viscously spreading inner front of
-# the torus advances into the funnel at r < r_in, and the near-empty cell just ahead of it
-# is accelerated without bound (measured: v_r 75 -> 514 -> 22790 over 50 cycles), after
-# which the timestep collapses to ~1e-88 and the run looks like it hangs.
-#   alpha=0.01:  rho_atm=1e-6 -> collapses at t=0.004;  1e-5 -> t=0.013;  1e-4 -> stable
-# 1e-4 gives the funnel enough inertia and costs almost nothing: with alpha = 0 and
-# nu_iso = 0 the disk still conserves mass to dm/m0 = -2.6e-5 over 100 orbits (vs -1.4e-6
-# at 1e-6), and disk_mass is unchanged to 5 digits.
-rho_atm      = 1.0e-4   # Ambient density; >= 1e-4 is required whenever alpha > 0
-t_atm_frac   = 1.0      # Ambient p/rho, in units of the torus mid-plane value
-visc_rho_cut = 1.0e-3   # Alpha viscosity is tapered off below this density (= 10*rho_atm)
+rho_atm      = 0.0001  # ambient density; >= 1e-4 required whenever alpha > 0
+t_atm_frac   = 1       # ambient p/rho in units of the torus mid-plane value
+visc_rho_cut = 0.001   # viscosity tapers to zero below this density
 
-# Physical properties for thermal scaling (CGS)
-M_bh     = 4.5e7        # Black hole mass [M_sun]
-rho_0    = 1.0e-13      # Reference physical density [g/cm³]
-T_0      = 5.00e+04     # Reference temperature in Kelvin (e.g., 1 million K for inner AGN)
-mu       = 2.3          # Mean molecular weight
-chi      = 5.00e+02     # Spatial scaling parameter (r_0 / r_g)
+M_bh     = 4.5e+07     # black hole mass [M_sun]
+rho_0    = 1e-13       # reference density [g/cm^3]
+T_0      = 50000       # reference temperature [K]
+mu       = 2.3         # mean molecular weight
+chi      = 500         # spatial scaling r_0 / r_g
 
 # ==============================================================================
-# PRE-PROCESSING PARAMETERS (Dimensionless Quantities)
+# DERIVED QUANTITIES (generated, for reference only)
 # ==============================================================================
-# Sound speed (cs0)         : 1.527339e+06 cm/s (15.273 km/s)
-# Polytropic index (n_poly) : 3.333333
-# Beta parameter            : 3.852746e+05
-# Disk inner radius (r_in)  : 0.563508 (dimensionless)
-# Disk outer radius (r_out) : 4.436492 (dimensionless)
-# Orbital period (P_tilde)  : 1.012266e-02 (dimensionless)
-# Output timestep (dt_out)  : 1.012266e-03 (dimensionless)
-# Total runtime (tlim)      : 1.012266e+00 (dimensionless)
+# Sound speed cs0            : 1.527339e+06 cm/s
+# Polytropic index n         : 3.333333
+# Gravity parameter beta     : 3.852746e+05
+# Torus inner radius r_in    : 0.563508
+# Torus outer radius r_out   : 4.436492
+# Orbital period P_orb       : 1.012266e-02
 #
-# ==============================================================================
-# VISCOSITY CONTROL (Two Methods Available)
-# ==============================================================================
-# ACTIVE METHOD: Alpha Prescription
-# Selected nu_iso           : 5.586344e+00 (dimensionless)
-# Selected tau_visc         : 1.790079e-01 (dimensionless)
-# Selected N_orbits         : ~18 orbits
+# Torus geometry             : R_in 0.0012 pc, R_out 0.0096 pc
+# Orbital period             : 1.40 yr
 #
-# --- Method 1: Shakura-Sunyaev Alpha Prescription ---
-# This method derives viscosity from turbulent disk physics:
-#   nu_iso = alpha * gamma * sqrt(beta) * [(0.5 - C') / (n+1)] * sqrt(R_0)
+# Schwarzschild radius r_g   : 1.328963e+13 cm
+# Length scale L_0           : 6.644813e+15 cm (0.0022 pc)
+# Time scale t_0             : 4.350581e+09 s (137.9 yr)
+# Mass scale                 : 14.7551 M_sun per code unit
+# Mdot scale                 : 0.107028 M_sun/yr per code unit
 #
-# Input:  alpha             : 0.1
-# Output: nu_iso (alpha)    : 5.586344e+00
-#         tau_visc          : 1.790079e-01
-#         N_orbits needed   : ~18 orbits
-#
-# --- Method 2: Direct Evolution Time Control ---
-# This method sets viscosity to achieve a target accretion timescale:
-#   nu_iso = (1/N) * sqrt(beta * R_0) / (2*pi)
-# where N is the desired number of orbits for significant accretion.
-#
-# Input:  N_desired         : 500 orbits
-# Output: nu_iso (N-control): 1.975765e-01
-#         tau_visc          : 5.061330e+00
-#
-# ==============================================================================
-# POST-PROCESSING PARAMETERS (Physical Units)
-# ==============================================================================
-# Black hole mass           : 4.50e+07 M_sun
-# Schwarzschild radius (r_g): 1.328956e+13 cm
-# Length scale (r_0)        : 6.644780e+15 cm (0.0022 pc)
-# Velocity scale (v_0=cs0)  : 15.273 km/s
-# Time scale (t_0)          : 4.350559e+09 s (1.38e+02 yr)
-#
-# DISK GEOMETRY:
-# Inner radius (R_in)       : 0.0012 pc
-# Outer radius (R_out)      : 0.0096 pc
-#
-# TIMESCALES:
-# One orbital period        : 1.40 yr
-# Viscous timescale         : 2.47e+01 yr
-# Orbits for accretion      : ~18 orbits
-#
+# Viscosity (alpha = 0.001)
+#   nu_iso                   : 5.586344e-02
+#   tau_visc                 : 1.790079e+01 (1768.4 orbits, 2467.8 yr)
+#   N_orbits = 1/(2*pi*alpha*(gamma-1)*(0.5-C')) is independent of mass and T_0
 # ==============================================================================
