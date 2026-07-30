@@ -5,7 +5,7 @@
 #
 #  USAGE (from repo root):
 #    bash scripts/sweep.sh [--dry-run]
-#    nohup bash scripts/sweep.sh > /dev/null 2>&1 & echo $!
+#    nohup bash scripts/practice/run/sweep.sh > /dev/null 2>&1 & echo $!
 #
 #  DESCRIPTION:
 #    Runs a series of Athena++ simulations, each with different parameter
@@ -55,12 +55,15 @@ NUM_MPI_PROCS=4
 #
 #  Each entry is a space-separated list of   key=value   overrides.
 #
-#  Special key prefixes:
+#  Special key prefixes select the input-file block to write into:
 #    mesh_nx1 / mesh_nx2    → nx1/nx2 inside the  <mesh>      config block
 #    block_nx1 / block_nx2  → nx1/nx2 inside the  <meshblock> config block
+#    out1_dt / out2_dt / …  → dt      inside the  <output1>, <output2>, … blocks
 #
 #  All other keys are matched by name and replaced at their first occurrence
-#  in the file (works for <problem>, <hydro>, <time>, etc.).
+#  in the file (works for <problem>, <hydro>, <time>, etc.).  A key that occurs
+#  in more than one block - dt does, once per <outputN> - therefore needs its
+#  prefix, or only the first block is changed.
 #
 # ── Edit the array below to define your test matrix ──────────────────────────
 #
@@ -90,6 +93,11 @@ declare -A ABBREV=(
   [tlim]="tlim"        [r_center]="rc"
   [C_prime]="cp"       [T_0]="T0"
   [M_bh]="Mbh"         [chi]="chi"
+  [mu]="mu"            [rho_0]="rho0"
+  [rho_atm]="ra"       [visc_rho_cut]="vc"
+  [t_atm_frac]="taf"
+  # Output cadence, per <outputN> block
+  [out1_dt]="o1"       [out2_dt]="o2"       [out3_dt]="o3"
   # Build-time (compile-time) parameters
   [b_flux]="flx"       [b_nghost]="ng"
   # Runtime integrator / reconstruction
@@ -236,10 +244,15 @@ for kv in params_str.split():
     # Skip build-time parameters (b_ prefix but NOT block_ which is meshblock)
     if key.startswith('b_') and not key.startswith('block_'):
         continue
-    if key.startswith('mesh_'):
-        section_ov[('mesh', key[5:])] = val
-    elif key.startswith('block_'):
-        section_ov[('meshblock', key[6:])] = val
+    # Prefixes that name an input-file block.  Longest first, so that a future
+    # 'block2_' cannot be swallowed by 'block_'.
+    for prefix, section in (('mesh_', 'mesh'), ('block_', 'meshblock'),
+                            ('out1_', 'output1'), ('out2_', 'output2'),
+                            ('out3_', 'output3'), ('out4_', 'output4'),
+                            ('out5_', 'output5')):
+        if key.startswith(prefix):
+            section_ov[(section, key[len(prefix):])] = val
+            break
     else:
         global_ov[key] = val
 

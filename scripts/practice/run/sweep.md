@@ -1,42 +1,44 @@
-# sweep.sh — Інструкція
+# sweep.sh — Guide
 
-Автоматичний параметричний sweep для Athena++.  
-Запускає серію симуляцій зі зміненими параметрами інпут-файлу (сорс не чіпається), детектує зависання і генерує Markdown-звіт.
+Automated parameter sweep for Athena++.
+Runs a series of simulations with modified input-file parameters (source is never touched), detects hangs, and generates a Markdown report.
 
 ---
 
-## Швидкий старт
+## Quick start
 
 ```bash
-# 1. Зібрати бінарник (якщо ще не зібраний)
+# 1. Build the binary (if not already built)
 bash build.sh
 
-# 2. Визначити тести (масив TESTS у верхній частині скрипта)
-#    → відредагуй scripts/practice/run/sweep.sh
+# 2. Define tests (TESTS array near the top of the script)
+#    → edit scripts/practice/run/sweep.sh
 
-# 3. Перевірити без запуску
+# 3. Check without running
 bash scripts/practice/run/sweep.sh --dry-run
 
-# 4. Запустити вночі у фоні (результати в results/sweeps/sweep-*)
-nohup bash scripts/practice/run/sweep.sh > sweep_output.log 2>&1 & echo $!
+# 4. Run overnight in the background (results land in results/sweeps/sweep-*)
+#    The script already logs its own output to results/sweeps/sweep-*/sweep.log,
+#    so stdout here can just be discarded.
+nohup bash scripts/practice/run/sweep.sh > /dev/null 2>&1 & echo $!
 ```
 
 ---
 
-## Налаштування (редагувати у верхній частині скрипта)
+## Configuration (edit near the top of the script)
 
-| Змінна | За замовчуванням | Призначення |
+| Variable | Default | Purpose |
 |---|---|---|
-| `PROBLEM` | `acc_disk_visc` | Назва задачі (ім'я `.cpp` файлу) |
-| `INPUT_TEMPLATE` | `inputs/hydro/athinput.acc_disk_visc` | Шаблон інпут-файлу |
-| `HANG_TIMEOUT` | `90` | Секунд без прогресу sim_time → kill |
-| `ETA_POLL_INTERVAL` | `5` | Як часто перевіряти прогрес в лозі (сек) |
-| `USE_MPI` | `0` | `1` — увімкнути MPI (потрібно зібрати з `-mpi`) |
-| `NUM_MPI_PROCS` | `4` | Кількість MPI процесів |
+| `PROBLEM` | `acc_disk_visc` | Problem name (matches the `.cpp` filename) |
+| `INPUT_TEMPLATE` | `inputs/hydro/athinput.acc_disk_visc` | Input-file template |
+| `HANG_TIMEOUT` | `90` | Seconds without sim_time progress → kill |
+| `ETA_POLL_INTERVAL` | `5` | How often to check progress in the log (sec) |
+| `USE_MPI` | `0` | `1` — enable MPI (needs a build with `-mpi`) |
+| `NUM_MPI_PROCS` | `4` | Number of MPI processes |
 
-### Масив тестів `TESTS`
+### `TESTS` array
 
-Кожен рядок — окремий тест, список `key=value` через пробіл:
+Each line is a separate test — a space-separated list of `key=value`:
 
 ```bash
 TESTS=(
@@ -47,17 +49,17 @@ TESTS=(
 )
 ```
 
-**Спеціальні префікси ключів:**
+**Special key prefixes:**
 
-| Ключ у `TESTS` | Де заміняється |
+| Key in `TESTS` | Where it's replaced |
 |---|---|
-| `mesh_nx1`, `mesh_nx2` | Блок `<mesh>` |
-| `block_nx1`, `block_nx2` | Блок `<meshblock>` |
-| Всі інші | Перше входження в будь-якому блоці |
+| `mesh_nx1`, `mesh_nx2` | `<mesh>` block |
+| `block_nx1`, `block_nx2` | `<meshblock>` block |
+| Everything else | First occurrence in any block |
 
-### Таблиця скорочень (для назв папок)
+### Abbreviation table (for directory names)
 
-Додай нові скорочення у `ABBREV` за потреби:
+Add new abbreviations to `ABBREV` as needed:
 
 ```bash
 declare -A ABBREV=(
@@ -70,113 +72,113 @@ declare -A ABBREV=(
 
 ---
 
-## Структура результатів
+## Results structure
 
 ```
 results/sweeps/sweep-YYYYMMDD-HHMMSS/
-  sweep.log                  ← повний лог консолі
-  REPORT.md                  ← фінальний Markdown-звіт
-  acc_disk_visc.cpp          ← snapshot сорсу на момент запуску
-  athinput.acc_disk_visc     ← snapshot шаблону інпуту
+  sweep.log                  ← full console transcript
+  REPORT.md                  ← final Markdown report
+  acc_disk_visc.cpp          ← source snapshot at run time
+  athinput.acc_disk_visc     ← input-template snapshot
   t01_nu0.0_a0.0/
-    athinput.in              ← змінений інпут для цього тесту
-    params.txt               ← які параметри були змінені
-    bin.txt                  ← яка версія бінарника використана
-    run.log                  ← вивід Athena++ (прогрес, помилки)
+    athinput.in              ← modified input for this test
+    params.txt               ← which parameters were overridden
+    bin.txt                  ← which binary version was used
+    run.log                  ← Athena++ output (progress, errors)
     status                   ← COMPLETED | KILLED_HANG | FAILED | UNKNOWN
-    start_time / end_time    ← Unix-таймстемпи
-    vis1d.py / vis2d.py / vishst.py  ← скрипти візуалізації (скопійовані)
-    data/                    ← *.tab, *.hst та інші файли Athena++
-    figs_2d/                 ← PNG-графіки (якщо vis2d.py спрацював)
-    figs_hst/                ← графіки від vishst.py (якщо спрацював)
+    start_time / end_time    ← Unix timestamps
+    vis1d.py / vis2d.py / vishst.py  ← visualization scripts (copied in)
+    data/                    ← *.tab, *.hst and other Athena++ output files
+    figs_2d/                 ← PNG plots (if vis2d.py ran)
+    figs_hst/                ← plots from vishst.py (if it ran)
   t02_nu1.0_a0.001/
     ...
 ```
 
 ---
 
-## Моніторинг під час виконання
+## Monitoring during a run
 
 ```bash
-# Живий лог (показує поточний прогрес):
+# Live log (shows current progress):
 tail -f results/sweeps/sweep-*/sweep.log
 
-# Дізнатись PID якщо не записав:
+# Find the PID if you didn't note it down:
 pgrep -af "sweep.sh"
 
-# Переглянути статуси вже виконаних тестів:
+# Check statuses of tests already finished:
 grep -h "" results/sweeps/sweep-<timestamp>/t*/status
 
-# Чи запущений якісь тест прямо зараз:
+# Is a test currently running:
 ps aux | grep athena
 ```
 
 ---
 
-## Зупинка
+## Stopping
 
-| Команда | Поведінка |
+| Command | Behavior |
 |---|---|
-| `kill -SIGTERM <PID>` | Коректна зупинка: чекає завершення поточного тесту, генерує звіт |
-| `kill -SIGINT <PID>` | Негайна зупинка: вбиває Athena++, генерує частковий звіт |
-| `Ctrl+C` (якщо не у фоні) | Те саме що SIGINT |
+| `kill -SIGTERM <PID>` | Graceful stop: waits for the current test to finish, generates the report |
+| `kill -SIGINT <PID>` | Immediate stop: kills Athena++, generates a partial report |
+| `Ctrl+C` (if not backgrounded) | Same as SIGINT |
 
-> Обидва варіанти завжди генерують `REPORT.md` з результатами вже виконаних тестів.
+> Both paths always generate `REPORT.md` with results for the tests that already ran.
 
 ---
 
-## Вранці: перегляд результатів
+## The next morning: reviewing results
 
 ```bash
-# Список усіх запусків:
+# List all runs:
 ls -dt results/sweeps/sweep-*/ | head -5
 
-# Відкрити звіт найсвіжішого запуску:
+# Open the report from the most recent run:
 cat results/sweeps/sweep-*/REPORT.md | head -100
 
-# Лог конкретного тесту (наприклад t02):
+# Log for a specific test (e.g. t02):
 cat results/sweeps/sweep-<timestamp>/t02_*/run.log
 
-# Швидкий огляд усіх статусів:
+# Quick overview of all statuses:
 ls -d results/sweeps/sweep-<timestamp>/t*/ | while read d; do echo "$(basename $d): $(cat $d/status)"; done
 ```
 
 ---
 
-## Детектування зависання (hang detection)
+## Hang detection
 
-Скрипт моніторить прогрес симуляції двома способами:
+The script monitors simulation progress two ways:
 
-1. **`sim_time` progress (PRIMARY)**: якщо `sim_time` в логу не змінився протягом `HANG_TIMEOUT` (90 сек за замовчуванням) → kill.  
-   Це ловить справжні зависання (timestep collapse, `dt → 1e-88`).
+1. **`sim_time` progress (PRIMARY)**: if `sim_time` in the log hasn't changed for `HANG_TIMEOUT` (90s by default) → kill.
+   This catches real hangs (timestep collapse, `dt → 1e-88`).
 
-2. **Output check (FALLBACK)**: якщо `sim_time` ще не з'явився в логу (рання стадія), перевіряєм факт появи нових рядків в логу.  
-   Якщо нових рядків нема протягом `HANG_TIMEOUT` → kill.
+2. **Output check (FALLBACK)**: if `sim_time` hasn't appeared in the log yet (early stage), checks whether new lines are appearing in the log.
+   If no new lines for `HANG_TIMEOUT` → kill.
 
-> **Важливо**: hang-detection оснований на прогресі `sim_time`, не на ETA.  
-> Це уникає хибних kill'єрів, коли ETA стоїть на місці але timestep не обвалювався.
+> **Note**: hang detection is based on `sim_time` progress, not ETA.
+> This avoids false kills when the ETA stalls but the timestep hasn't actually collapsed.
 
 ---
 
-## Статуси у звіті
+## Statuses in the report
 
-| Статус | Значення |
+| Status | Meaning |
 |---|---|
-| `✅ COMPLETED` | Симуляція дійшла до `tlim` або `nlim` |
-| `⏱️ KILLED (hang)` | `sim_time` не прогресував `HANG_TIMEOUT` секунд → примусово зупинено |
-| `❌ FAILED` | Athena++ вивів `FATAL ERROR`, Segfault, `Aborted` або `Error:` |
-| `❓ UNKNOWN` | Процес завершився, але ознак успіху/помилки не знайдено |
-| `🔍 DRY RUN` | Тест не виконувався (`--dry-run` режим) |
+| `✅ COMPLETED` | Simulation reached `tlim` or `nlim` |
+| `⏱️ KILLED (hang)` | `sim_time` didn't progress for `HANG_TIMEOUT` seconds → force-stopped |
+| `❌ FAILED` | Athena++ printed `FATAL ERROR`, Segfault, `Aborted`, or `Error:` |
+| `❓ UNKNOWN` | Process exited but no success/failure marker was found |
+| `🔍 DRY RUN` | Test wasn't actually run (`--dry-run` mode) |
 
 ---
 
-## Post-processing (автоматична візуалізація)
+## Post-processing (automatic visualization)
 
-На завершення sweep скрипт запускає `vis2d.py` і `vishst.py` для кожного тесту:
+At the end of the sweep, the script runs `vis2d.py` and `vishst.py` for each test:
 
-- **`vis2d.py`** зчитує `.tab` файли і малює контурні графіки (PNG) → `test_dir/figs_2d/`
-- **`vishst.py`** парсить `.hst` (history) файл → таблиці, графіки → `test_dir/figs_hst/`
+- **`vis2d.py`** reads the `.tab` files and draws contour plots (PNG) → `test_dir/figs_2d/`
+- **`vishst.py`** parses the `.hst` (history) file → tables, plots → `test_dir/figs_hst/`
 
-Якщо симуляція не має вихідних даних (KILLED_HANG, FAILED) — візуалізація пропускається з WARN.
+If a simulation has no output data (KILLED_HANG, FAILED), visualization is skipped with a WARN.
 
-> Post-processing **не блокує** звіт: навіть якщо vis-скрипти впадуть, `REPORT.md` все рівно буде згенерований.
+> Post-processing **doesn't block** the report: even if the vis scripts fail, `REPORT.md` is still generated.
