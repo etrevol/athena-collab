@@ -63,13 +63,13 @@ dfloor = 1e-12         # density floor
 pfloor = 1e-10         # pressure floor
 
 <problem>
-r_center = 1.0         # radius of the torus density maximum
-C_prime  = 0.2         # torus thickness parameter (0 < C_prime < 0.5)
+r_center = 1.0         # radius of the disk density maximum
+C_prime  = 0.2         # disk thickness parameter (0 < C_prime < 0.5)
 nu_iso   = 1           # isotropic kinematic viscosity; > 0 enables viscous fluxes
 alpha    = 0.001       # Shakura-Sunyaev viscosity parameter
 
 rho_atm      = 0.0001  # ambient medium density
-t_atm_frac   = 1       # ambient p/rho, in units of the torus mid-plane value
+t_atm_frac   = 1       # ambient p/rho, in units of the disk mid-plane value
 visc_rho_cut = 0.001   # density below which viscosity is tapered to zero
 
 M_bh     = 4.5e+07     # black hole mass [M_sun]
@@ -84,11 +84,11 @@ chi      = 500         # spatial scaling factor r_0 / r_g
 # Sound speed cs0            : 2.990362e+06 cm/s
 # Polytropic index n         : 3.333333
 # Gravity parameter beta     : 1.005064e+05
-# Torus inner radius r_in    : 0.563508
-# Torus outer radius r_out   : 4.436492
+# Disk inner radius r_in     : 0.563508
+# Disk outer radius r_out    : 4.436492
 # Orbital period P_orb       : 1.981906e-02
 #
-# Torus geometry             : R_in 0.0012 pc, R_out 0.0096 pc
+# Disk geometry              : R_in 0.0012 pc, R_out 0.0096 pc
 # Orbital period             : 1.40 yr
 #
 # Schwarzschild radius r_g   : 1.328963e+13 cm

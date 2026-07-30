@@ -1,11 +1,12 @@
-"""Papaloizou-Pringle torus: scalings, profiles and the grid they imply.
+"""Papaloizou-Pringle disk: scalings, profiles and the grid they imply.
 
 One source of truth for the dimensionless model, imported by the notebooks and by
 make_athinput.py, so a number cannot be right in one place and wrong in another.
 
     python3 disk_model.py     # write inputs/hydro/athinput.acc_disk_visc and check it
 
-That is the whole workflow: edit the RUN block below, run this file, and the input
+That is the whole workflow. Physics lives in the DiskModel field defaults; resolution and
+run length live in the RUN_SETUP block below. Edit either, run this file, and the input
 file the simulation reads is regenerated from the model and verified in one step.
 Use make_athinput.py directly only to pass one-off parameters without editing anything.
 
@@ -13,7 +14,7 @@ Use make_athinput.py directly only to pass one-off parameters without editing an
     m = DiskModel(alpha=0.01, T_0=3e4)     # any physical input can be overridden
     m.beta, m.r_in, m.r_out, m.P_orb       # derived quantities as attributes
     m.rho(r), m.p(r), m.v_phi(r)           # radial profiles as the pgen builds them
-    m.grid()                               # x1min/x1max that enclose the torus
+    m.grid()                               # x1min/x1max that enclose the disk
     m.summary()                            # human-readable report
 
 Reference: docs/astroformular/sections/{gravity,thermodynamics}_scaling.tex
@@ -26,13 +27,12 @@ import sys
 import numpy as np
 
 # ============================================================================
-# RUN CONFIGURATION - this is the block to edit, then `python3 disk_model.py`
+# RUN CONFIGURATION - resolution and run length, then `python3 disk_model.py`
 # ============================================================================
-# Physics: anything DiskModel accepts. Omitted keys keep the dataclass defaults.
-RUN_PHYSICS = dict(
-    alpha=0.001,        # Shakura-Sunyaev viscosity; H/r and N_orbits follow from it
-)
-# Resolution and run length.
+# The PHYSICS lives in the DiskModel field defaults below and nowhere else. There is
+# deliberately no second copy of it here: a duplicate meant editing the dataclass field
+# looked like it should work and silently did not, which is the exact failure mode this
+# module exists to prevent.
 RUN_SETUP = dict(
     orbits=100.0,       # run length, in orbits at r_center
     frames_per_orbit=10.0,
@@ -66,23 +66,23 @@ class DiskModel:
     chi: float = 5.0e2       # r_0 / r_g
     rho_0: float = 1.0e-13   # reference density [g/cm^3]
 
-    # torus geometry / thermodynamics
+    # disk geometry / thermodynamics
     gamma: float = 1.3       # adiabatic index
     r_center: float = 1.0    # density maximum, in units of r_0
     C_prime: float = 0.2     # thickness parameter, must be < 0.5
 
     # viscosity
-    alpha: float = 0.0       # Shakura-Sunyaev alpha
+    alpha: float = 0.001     # Shakura-Sunyaev alpha; 0 is a genuinely inviscid run
 
     # ambient medium (a real equilibrium state, not the floor)
     rho_atm: float = 1.0e-4  # ambient density
-    t_atm_frac: float = 1.0  # ambient p/rho in units of the torus mid-plane value
+    t_atm_frac: float = 1.0  # ambient p/rho in units of the disk mid-plane value
 
     _d: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         if self.C_prime >= 0.5:
-            raise ValueError(f"C_prime={self.C_prime} must be < 0.5 for a closed torus")
+            raise ValueError(f"C_prime={self.C_prime} must be < 0.5 for a closed disk")
         if self.gamma <= 1.0:
             raise ValueError(f"gamma={self.gamma} must exceed 1")
         # mu is not free: it is fixed by the ionization state at T_0, and it enters
@@ -143,18 +143,18 @@ class DiskModel:
     # -- radial profiles ----------------------------------------------------
 
     def f(self, r):
-        """Torus shape function; positive inside the torus."""
+        """Disk shape function; positive inside the disk."""
         x = self.r_center / np.asarray(r, dtype=float)
         return x - 0.5 * x * x - self.C_prime
 
     def rho_disk(self, r):
-        """Torus density, zero outside the surface."""
+        """Disk density, zero outside the surface."""
         f = self.f(r)
         return np.where(f > 0, np.power(np.clip(f, 0, None) / self.f_center,
                                         self.n_poly), 0.0)
 
     def p_disk(self, r):
-        """Torus pressure, zero outside the surface."""
+        """Disk pressure, zero outside the surface."""
         f = self.f(r)
         norm = self.beta / (self.r_center * (self.n_poly + 1.0)
                             * self.f_center**self.n_poly)
@@ -162,17 +162,17 @@ class DiskModel:
                                                self.n_poly + 1.0), 0.0)
 
     def rho(self, r):
-        """Total density: torus plus ambient medium, as the pgen builds it."""
+        """Total density: disk plus ambient medium, as the pgen builds it."""
         return self.rho_disk(r) + self.rho_atm
 
     def p(self, r):
-        """Total pressure: torus plus ambient medium."""
+        """Total pressure: disk plus ambient medium."""
         return self.p_disk(r) + self.p_atm
 
     def v_phi(self, r):
         """Rotation from exact radial force balance, v^2 = beta/r + (r/rho) dp/dr.
 
-        Reduces to the l = const torus inside and to Keplerian in the ambient.
+        Reduces to the l = const disk inside and to Keplerian in the ambient.
         """
         r = np.asarray(r, dtype=float)
         f = self.f(r)
@@ -187,12 +187,12 @@ class DiskModel:
     def H_over_r(self, r, disk_only=False):
         """Scale height ratio c_s/v_K; the thin-disk assumption needs this << 1.
 
-        Uses the total p and rho, so past the torus surface it reports the AMBIENT
+        Uses the total p and rho, so past the disk surface it reports the AMBIENT
         medium (c_s there is constant while v_K keeps falling, which makes the ratio
-        rise to a value that says nothing about the torus). Pass disk_only=True for
-        the torus alone; it is NaN outside the surface.
+        rise to a value that says nothing about the disk). Pass disk_only=True for
+        the disk alone; it is NaN outside the surface.
 
-        At the density maximum the torus value reduces to sqrt((gamma-1)*(0.5-C')),
+        At the density maximum the disk value reduces to sqrt((gamma-1)*(0.5-C')),
         independent of mass, temperature, mu and beta.
         """
         r = np.asarray(r, dtype=float)
@@ -206,9 +206,9 @@ class DiskModel:
     # -- grid ---------------------------------------------------------------
 
     def grid(self, pad_in=0.62, pad_out=1.25, nx1=176, nx2=128):
-        """Radial domain that encloses the torus, plus the matching resolution.
+        """Radial domain that encloses the disk, plus the matching resolution.
 
-        The torus surface (rho, p, c_s -> 0) has to be interior: a zero-gradient
+        The disk surface (rho, p, c_s -> 0) has to be interior: a zero-gradient
         boundary placed on it is ill posed and drains the disk. Defaults leave
         ~7 cells inside r_in and ~38 outside r_out at nx1=176.
         """
@@ -285,9 +285,9 @@ def report(m):
          f"{g['cells_outside']} outside r_out",
          f"H/r at r_center: {m.H_over_r(m.r_center):.4f}"
          f"  = sqrt((gamma-1)(0.5-C')) = {hr_c:.4f}",
-         f"max H/r in the torus body: "
+         f"max H/r in the disk body: "
          f"{np.nanmax(m.H_over_r(rr[body], disk_only=True)):.4f}"
-         f"   (past the surface the ratio reports the ambient, not the torus)"]
+         f"   (past the surface the ratio reports the ambient, not the disk)"]
     return "\n".join(L)
 
 
@@ -296,7 +296,7 @@ def main():
     import make_athinput
     import verify_athinput
 
-    m = DiskModel(**RUN_PHYSICS)
+    m = DiskModel()
     out = repo_root() / RUN_OUTPUT
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(make_athinput.build(m, **RUN_SETUP))

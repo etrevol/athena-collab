@@ -2,7 +2,7 @@
 """Check an athinput against the theory it is meant to implement.
 
 Catches values that drifted from what disk_model.py derives, plus the traps that are
-easy to fall into: a boundary sitting on the torus surface, floors above the ambient
+easy to fall into: a boundary sitting on the disk surface, floors above the ambient
 medium, and the two nu_iso/alpha combinations that silently change the physics.
 
     verify_athinput.py inputs/hydro/athinput.acc_disk_visc
@@ -63,7 +63,7 @@ def check(path):
     def add(status, name, detail):
         rows.append((status, name, detail))
 
-    # -- grid must enclose the torus ---------------------------------------
+    # -- grid must enclose the disk ---------------------------------------
     x1min, x1max = num(p, "mesh/x1min"), num(p, "mesh/x1max")
     nx1 = num(p, "mesh/nx1")
     if x1min is None or x1max is None:
@@ -74,7 +74,7 @@ def check(path):
         n_out = (x1max - m.r_out) / dr
         if n_in < 1.0:
             add(FAIL, "x1min", f"{x1min:g} is within {n_in:.2f} cells of r_in "
-                               f"{m.r_in:.6g}: the torus surface sits on the boundary, "
+                               f"{m.r_in:.6g}: the disk surface sits on the boundary, "
                                f"the outflow condition is ill posed and the disk "
                                f"drains (~1%/orbit measured)")
         elif n_in < 3:
@@ -140,11 +140,11 @@ def check(path):
         add(OK, "output1/dt", f"{dt_out:g}, {tlim / dt_out:.0f} frames, "
                               f"{m.P_orb / dt_out:.1f} per orbit")
 
-    # -- resolution at the torus surface ------------------------------------
+    # -- resolution at the disk surface ------------------------------------
     if x1min is not None:
         dr = (x1max - x1min) / nx1
         # Width over which rho_disk climbs from rho_atm to its first cell value.
-        # Search the whole torus, not a fixed cell window: at large n_poly the rise
+        # Search the whole disk, not a fixed cell window: at large n_poly the rise
         # takes tens of cells, and a short window makes argmax return 0 on an
         # all-False array - reporting a razor edge when the truth is the opposite.
         import numpy as np
@@ -152,15 +152,15 @@ def check(path):
         hit = m.rho_disk(rr) > m.rho_atm
         if not hit.any():
             add(FAIL, "surface", f"rho_disk never reaches rho_atm = {m.rho_atm:g}: "
-                                 f"the torus is entirely below the ambient medium")
+                                 f"the disk is entirely below the ambient medium")
         else:
             w = rr[np.argmax(hit)] - m.r_in
             body = rr[hit][-1] - rr[hit][0]
             add(OK if w / dr > 0.15 else WARN, "surface",
-                f"the torus edge spans {w / dr:.2f} cells; it is set by rho_atm, not by dr")
-            add(OK if body / dr > 30 else WARN, "torus body",
+                f"the disk edge spans {w / dr:.2f} cells; it is set by rho_atm, not by dr")
+            add(OK if body / dr > 30 else WARN, "disk body",
                 f"{body / dr:.0f} cells across the part that rises above rho_atm "
-                f"({body / (m.r_out - m.r_in):.0%} of the geometric torus)")
+                f"({body / (m.r_out - m.r_in):.0%} of the geometric disk)")
 
     return m, rows
 
