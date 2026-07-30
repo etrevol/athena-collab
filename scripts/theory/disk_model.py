@@ -36,7 +36,7 @@ import numpy as np
 RUN_SETUP = dict(
     orbits=100.0,       # run length, in orbits at r_center
     frames_per_orbit=10.0,
-    nx1=176, nx2=128,
+    nx1=128, nx2=128,
     meshblock=None,     # (n1, n2), or None for a single block
     cfl=0.4,
     fmt="tab",          # "tab" or "hdf5"
@@ -72,7 +72,7 @@ class DiskModel:
     C_prime: float = 0.2     # thickness parameter, must be < 0.5
 
     # viscosity
-    alpha: float = 0.001     # Shakura-Sunyaev alpha; 0 is a genuinely inviscid run
+    alpha: float = 0.0     # Shakura-Sunyaev alpha; 0 is a genuinely inviscid run
 
     # ambient medium (a real equilibrium state, not the floor)
     rho_atm: float = 1.0e-4  # ambient density
@@ -205,7 +205,7 @@ class DiskModel:
 
     # -- grid ---------------------------------------------------------------
 
-    def grid(self, pad_in=0.62, pad_out=1.25, nx1=176, nx2=128):
+    def grid(self, pad_in=0.62, pad_out=1.25, nx1=128, nx2=128):
         """Radial domain that encloses the disk, plus the matching resolution.
 
         The disk surface (rho, p, c_s -> 0) has to be interior: a zero-gradient

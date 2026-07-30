@@ -12,13 +12,13 @@
 bash build.sh
 
 # 2. Визначити тести (масив TESTS у верхній частині скрипта)
-#    → відредагуй scripts/sweep.sh
+#    → відредагуй scripts/practice/run/sweep.sh
 
 # 3. Перевірити без запуску
-bash scripts/sweep.sh --dry-run
+bash scripts/practice/run/sweep.sh --dry-run
 
-# 4. Запустити вночі у фоні
-nohup bash scripts/sweep.sh > /dev/null 2>&1 & echo $!   # запиши PID!
+# 4. Запустити вночі у фоні (результати в results/sweeps/sweep-*)
+nohup bash scripts/practice/run/sweep.sh > sweep_output.log 2>&1 & echo $!
 ```
 
 ---
@@ -27,10 +27,10 @@ nohup bash scripts/sweep.sh > /dev/null 2>&1 & echo $!   # запиши PID!
 
 | Змінна | За замовчуванням | Призначення |
 |---|---|---|
-| `PROBLEM` | `acc_disk_temp_visc` | Назва задачі (ім'я `.cpp` файлу) |
-| `INPUT_TEMPLATE` | `inputs/hydro/athinput.acc_disk_temp_visc` | Шаблон інпут-файлу |
-| `HANG_TIMEOUT` | `60` | Секунд без зменшення ETA → kill |
-| `ETA_POLL_INTERVAL` | `5` | Як часто перевіряти ETA в лозі (сек) |
+| `PROBLEM` | `acc_disk_visc` | Назва задачі (ім'я `.cpp` файлу) |
+| `INPUT_TEMPLATE` | `inputs/hydro/athinput.acc_disk_visc` | Шаблон інпут-файлу |
+| `HANG_TIMEOUT` | `90` | Секунд без прогресу sim_time → kill |
+| `ETA_POLL_INTERVAL` | `5` | Як часто перевіряти прогрес в лозі (сек) |
 | `USE_MPI` | `0` | `1` — увімкнути MPI (потрібно зібрати з `-mpi`) |
 | `NUM_MPI_PROCS` | `4` | Кількість MPI процесів |
 
@@ -73,20 +73,23 @@ declare -A ABBREV=(
 ## Структура результатів
 
 ```
-results/SWEEP/sweep-YYYYMMDD-HHMMSS/
+results/sweeps/sweep-YYYYMMDD-HHMMSS/
   sweep.log                  ← повний лог консолі
-  REPORT.md                  ← фінальний звіт
-  acc_disk_temp_visc.cpp     ← snapshot сорсу на момент запуску
-  athinput.acc_disk_temp_visc ← snapshot шаблону інпуту
-  t01_nu0.1_a0.0/
+  REPORT.md                  ← фінальний Markdown-звіт
+  acc_disk_visc.cpp          ← snapshot сорсу на момент запуску
+  athinput.acc_disk_visc     ← snapshot шаблону інпуту
+  t01_nu0.0_a0.0/
     athinput.in              ← змінений інпут для цього тесту
     params.txt               ← які параметри були змінені
-    run.log                  ← вивід Athena++ (ETA, прогрес, помилки)
+    bin.txt                  ← яка версія бінарника використана
+    run.log                  ← вивід Athena++ (прогрес, помилки)
     status                   ← COMPLETED | KILLED_HANG | FAILED | UNKNOWN
     start_time / end_time    ← Unix-таймстемпи
-    vis1d.py / vis2d.py / vishst.py  ← скрипти візуалізації
+    vis1d.py / vis2d.py / vishst.py  ← скрипти візуалізації (скопійовані)
     data/                    ← *.tab, *.hst та інші файли Athena++
-  t02_nu0.5_a0.0/
+    figs_2d/                 ← PNG-графіки (якщо vis2d.py спрацював)
+    figs_hst/                ← графіки від vishst.py (якщо спрацював)
+  t02_nu1.0_a0.001/
     ...
 ```
 
@@ -95,14 +98,17 @@ results/SWEEP/sweep-YYYYMMDD-HHMMSS/
 ## Моніторинг під час виконання
 
 ```bash
-# Живий лог (показує поточний прогрес і ETA):
-tail -f results/SWEEP/sweep-*/sweep.log
+# Живий лог (показує поточний прогрес):
+tail -f results/sweeps/sweep-*/sweep.log
 
 # Дізнатись PID якщо не записав:
-pgrep -af sweep.sh
+pgrep -af "sweep.sh"
 
 # Переглянути статуси вже виконаних тестів:
-grep -h "" results/SWEEP/sweep-<timestamp>/t*/status
+grep -h "" results/sweeps/sweep-<timestamp>/t*/status
+
+# Чи запущений якісь тест прямо зараз:
+ps aux | grep athena
 ```
 
 ---
@@ -122,15 +128,33 @@ grep -h "" results/SWEEP/sweep-<timestamp>/t*/status
 ## Вранці: перегляд результатів
 
 ```bash
-# Відкрити звіт:
-cat results/SWEEP/sweep-<timestamp>/REPORT.md
+# Список усіх запусків:
+ls -dt results/sweeps/sweep-*/ | head -5
 
-# Лог конкретного тесту:
-cat results/SWEEP/sweep-<timestamp>/t03_nu1.0_a0.0/run.log
+# Відкрити звіт найсвіжішого запуску:
+cat results/sweeps/sweep-*/REPORT.md | head -100
+
+# Лог конкретного тесту (наприклад t02):
+cat results/sweeps/sweep-<timestamp>/t02_*/run.log
 
 # Швидкий огляд усіх статусів:
-grep -h "" results/SWEEP/sweep-<timestamp>/t*/status
+ls -d results/sweeps/sweep-<timestamp>/t*/ | while read d; do echo "$(basename $d): $(cat $d/status)"; done
 ```
+
+---
+
+## Детектування зависання (hang detection)
+
+Скрипт моніторить прогрес симуляції двома способами:
+
+1. **`sim_time` progress (PRIMARY)**: якщо `sim_time` в логу не змінився протягом `HANG_TIMEOUT` (90 сек за замовчуванням) → kill.  
+   Це ловить справжні зависання (timestep collapse, `dt → 1e-88`).
+
+2. **Output check (FALLBACK)**: якщо `sim_time` ще не з'явився в логу (рання стадія), перевіряєм факт появи нових рядків в логу.  
+   Якщо нових рядків нема протягом `HANG_TIMEOUT` → kill.
+
+> **Важливо**: hang-detection оснований на прогресі `sim_time`, не на ETA.  
+> Це уникає хибних kill'єрів, коли ETA стоїть на місці але timestep не обвалювався.
 
 ---
 
@@ -139,7 +163,20 @@ grep -h "" results/SWEEP/sweep-<timestamp>/t*/status
 | Статус | Значення |
 |---|---|
 | `✅ COMPLETED` | Симуляція дійшла до `tlim` або `nlim` |
-| `⏱️ KILLED (hang)` | ETA не зменшувалась `HANG_TIMEOUT` секунд → примусово зупинено |
-| `❌ FAILED` | Athena++ вивів `FATAL ERROR`, Segfault або `Aborted` |
+| `⏱️ KILLED (hang)` | `sim_time` не прогресував `HANG_TIMEOUT` секунд → примусово зупинено |
+| `❌ FAILED` | Athena++ вивів `FATAL ERROR`, Segfault, `Aborted` або `Error:` |
 | `❓ UNKNOWN` | Процес завершився, але ознак успіху/помилки не знайдено |
 | `🔍 DRY RUN` | Тест не виконувався (`--dry-run` режим) |
+
+---
+
+## Post-processing (автоматична візуалізація)
+
+На завершення sweep скрипт запускає `vis2d.py` і `vishst.py` для кожного тесту:
+
+- **`vis2d.py`** зчитує `.tab` файли і малює контурні графіки (PNG) → `test_dir/figs_2d/`
+- **`vishst.py`** парсить `.hst` (history) файл → таблиці, графіки → `test_dir/figs_hst/`
+
+Якщо симуляція не має вихідних даних (KILLED_HANG, FAILED) — візуалізація пропускається з WARN.
+
+> Post-processing **не блокує** звіт: навіть якщо vis-скрипти впадуть, `REPORT.md` все рівно буде згенерований.
