@@ -5,6 +5,7 @@
 #
 #  USAGE (from repo root):
 #    bash scripts/sweep.sh [--dry-run]
+#    nohup bash scripts/sweep.sh > /dev/null 2>&1 & echo $!
 #
 #  DESCRIPTION:
 #    Runs a series of Athena++ simulations, each with different parameter
