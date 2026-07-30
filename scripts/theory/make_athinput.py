@@ -88,13 +88,13 @@ dfloor = {dfloor:<14.6g}# density floor
 pfloor = {pfloor:<14.6g}# pressure floor
 
 <problem>
-r_center = {r_center:<12}# radius of the torus density maximum
-C_prime  = {C_prime:<12}# torus thickness parameter (0 < C_prime < 0.5)
+r_center = {r_center:<12}# radius of the disk density maximum
+C_prime  = {C_prime:<12}# disk thickness parameter (0 < C_prime < 0.5)
 nu_iso   = {nu_iso:<12.6g}# isotropic kinematic viscosity; > 0 enables viscous fluxes
 alpha    = {alpha:<12.6g}# Shakura-Sunyaev viscosity parameter
 
 rho_atm      = {rho_atm:<8.6g}# ambient medium density
-t_atm_frac   = {t_atm_frac:<8.6g}# ambient p/rho, in units of the torus mid-plane value
+t_atm_frac   = {t_atm_frac:<8.6g}# ambient p/rho, in units of the disk mid-plane value
 visc_rho_cut = {visc_cut:<8.6g}# density below which viscosity is tapered to zero
 
 M_bh     = {M_bh:<12.6g}# black hole mass [M_sun]
@@ -111,11 +111,11 @@ THEORY_BLOCK = """
 # Sound speed cs0            : {cs0:.6e} cm/s
 # Polytropic index n         : {n_poly:.6f}
 # Gravity parameter beta     : {beta:.6e}
-# Torus inner radius r_in    : {r_in:.6f}
-# Torus outer radius r_out   : {r_out:.6f}
+# Disk inner radius r_in     : {r_in:.6f}
+# Disk outer radius r_out    : {r_out:.6f}
 # Orbital period P_orb       : {P_orb:.6e}
 #
-# Torus geometry             : R_in {R_in_pc:.4f} pc, R_out {R_out_pc:.4f} pc
+# Disk geometry              : R_in {R_in_pc:.4f} pc, R_out {R_out_pc:.4f} pc
 # Orbital period             : {P_yr:.2f} yr
 #
 # Schwarzschild radius r_g   : {r_g:.6e} cm
