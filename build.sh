@@ -9,14 +9,14 @@
 # Edit the variables below to choose what is built and where it lands.
 #
 # Generate the input file first if the physics changed:
-#   python3 scripts/theory/make_athinput.py -o inputs/hydro/athinput.acc_disk_visc
-#   python3 scripts/theory/verify_athinput.py inputs/hydro/athinput.acc_disk_visc
+#   python3 scripts/theory/make_athinput.py -o inputs/hydro/athinput.acc_disk_visc_vv
+#   python3 scripts/theory/verify_athinput.py inputs/hydro/athinput.acc_disk_visc_vv
 #
 set -e  # abort on the first failing command
 
-problem="acc_disk_visc"        # problem generator: src/pgen/<problem>.cpp
-input="acc_disk_visc"          # input file: inputs/hydro/athinput.<input>
-specification="-acc_disk_visc" # suffix appended to the run directory name
+problem="acc_disk_visc_vv"        # problem generator: src/pgen/<problem>.cpp
+input="acc_disk_visc_vv"          # input file: inputs/hydro/athinput.<input>
+specification="-acc_disk_visc_vv" # suffix appended to the run directory name
 
 use_mpi=0              # 1 = build and run with MPI, 0 = serial
 num_mpi_procs=4        # MPI ranks, used only when use_mpi=1
@@ -37,6 +37,14 @@ materials_directory="materials"
 build_state_file=".build_state"
 need_rebuild=false
 
+# The full configure line, so a change of ANY flag forces a rebuild. Storing only the
+# problem name meant `./build.sh` with use_mpi flipped reported "no changes" and silently
+# ran the previous binary -- which would quietly invalidate a convergence study.
+configure_args="--prob ${problem} --coord=cylindrical"
+if [ "$use_mpi" -eq 1 ]; then
+    configure_args="${configure_args} -mpi"
+fi
+
 # Hash of the generator source, stored in .build_state
 source_file="src/pgen/${problem}.cpp"
 if [ -f "${source_file}" ]; then
@@ -50,10 +58,17 @@ fi
 if [ -f "${build_state_file}" ]; then
     saved_problem=$(grep "^PROBLEM=" "${build_state_file}" | cut -d'=' -f2)
     saved_hash=$(grep "^HASH=" "${build_state_file}" | cut -d'=' -f2)
-    
+    saved_configure=$(sed -n 's/^CONFIGURE=//p' "${build_state_file}")
+
     if [ "${saved_problem}" != "${problem}" ] || [ "${saved_hash}" != "${current_hash}" ]; then
         need_rebuild=true
         echo "Changes detected (problem or source file changed). Rebuilding..."
+    elif [ "${saved_configure}" != "${configure_args}" ]; then
+        need_rebuild=true
+        echo "Configure flags changed:"
+        echo "  was: ${saved_configure:-<not recorded>}"
+        echo "  now: ${configure_args}"
+        echo "Rebuilding (a plain make would leave objects from both configurations)..."
     else
         echo "No changes detected. Skipping compilation..."
     fi
@@ -64,22 +79,22 @@ fi
 
 # 1. Configure and build
 if [ "$need_rebuild" = true ]; then
-    echo "Configuring with problem: ${problem}"
+    echo "Configuring: python3 configure.py ${configure_args}"
     if [ "$use_mpi" -eq 1 ]; then
         echo "MPI parallelization: ENABLED"
-        python3 configure.py --prob "${problem}" --coord=cylindrical -mpi
     else
         echo "MPI parallelization: DISABLED (single block mode)"
-        python3 configure.py --prob "${problem}" --coord=cylindrical
     fi
+    python3 configure.py ${configure_args}
 
     echo "Building..."
     make clean
     make -j$(($(nproc) - 1))
-    
+
     # Save current state
     echo "PROBLEM=${problem}" > "${build_state_file}"
     echo "HASH=${current_hash}" >> "${build_state_file}"
+    echo "CONFIGURE=${configure_args}" >> "${build_state_file}"
     echo "Build completed successfully!"
 else
     echo "Using existing build."
@@ -89,9 +104,25 @@ fi
 mkdir -p "${results_directory}/${project_directory}/${sample_directory}/${data_directory}"
 mkdir -p "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}"
 
-# 3. Record what this run was made with
-cp "${repo_directory}/inputs/hydro/athinput.${input}" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
-cp "${repo_directory}/src/pgen/${problem}.cpp" "${results_directory}/${project_directory}/${sample_directory}/${materials_directory}/"
+# 3. Record what this run was made with. A convergence study is only meaningful if every
+# point in it can be shown to come from the same binary, so the provenance travels with
+# the run: input, generator source, configure line and the working-tree commit.
+run_materials="${results_directory}/${project_directory}/${sample_directory}/${materials_directory}"
+cp "${repo_directory}/inputs/hydro/athinput.${input}" "${run_materials}/"
+cp "${repo_directory}/src/pgen/${problem}.cpp" "${run_materials}/"
+if [ -f "${repo_directory}/configure.log" ]; then
+    cp "${repo_directory}/configure.log" "${run_materials}/"
+fi
+{
+    echo "date        = $(date -Iseconds)"
+    echo "host        = $(hostname)"
+    echo "problem     = ${problem}"
+    echo "configure   = ${configure_args}"
+    echo "pgen_md5    = ${current_hash}"
+    echo "git_sha     = $(git -C "${repo_directory}" rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "git_dirty   = $(git -C "${repo_directory}" status --porcelain 2>/dev/null | wc -l) file(s)"
+    echo "mpi_procs   = $([ "$use_mpi" -eq 1 ] && echo "${num_mpi_procs}" || echo 1)"
+} > "${run_materials}/provenance.txt"
 
 # The visualization scripts live outside the repository (scripts/ is gitignored), so a
 # fresh clone will not have them. They are a convenience copy, not something the run
