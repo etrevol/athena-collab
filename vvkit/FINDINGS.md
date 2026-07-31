@@ -188,7 +188,20 @@ the two can converge at different rates — a volume-weighted mean of a signed q
 admits cancellation that the norms do not. Worth following up; it does not undermine the
 order measurement.
 
-## 8. What was not done
+## 8. Regression: the existing suite is unaffected
+
+`python3 scripts/vv/run_vv.py` was run in this worktree after all commits: **36 passed,
+2 failed, 0 warnings** in 15 minutes. The two failures are the two already documented in
+the formulary as known limitations -- the transient pressure-floor ring on the coarsest
+grid, and `visc_transport` reaching 42% of its tlim as the viscous front enters the
+funnel. No new failure was introduced.
+
+The PP84 growth rates reproduce the recorded values exactly: m = 1 at 1.0648 per orbit
+against 1.0725 from linear theory (0.7% apart), m = 2 at 0.9830 against 0.9710, m = 3 at
+0.7466 against 0.7656. Splitting the instrumented generator out as `acc_disk_visc_vv.cpp`
+changed nothing physical.
+
+## 9. What was not done
 
 Stated plainly rather than left to inference:
 
