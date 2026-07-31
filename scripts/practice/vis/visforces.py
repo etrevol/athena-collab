@@ -7,11 +7,28 @@ ATHENA++ RADIAL FORCE BALANCE VISUALIZER
 Visualize the three forces governing Papaloizou-Pringle disk equilibrium,
 averaged over the azimuthal direction (phi), from uov .tab output files.
 
-Forces (per unit mass, radial direction):
-  f_grav   = -beta / r^2                 (gravity, from NewtonianGravity source)
-  f_centr  = v_phi^2 / r                 (centrifugal)
-  f_press  = -(1/rho) * dP/dr            (pressure gradient)
-  f_sum    = f_grav + f_centr + f_press  (net force, ~0 in equilibrium)
+Forces (per unit mass, radial direction). All three are formed from the SAME discrete
+operators the integrator uses -- the face fluxes it applied, the geometric factor
+src1 = 2/(r_m + r_p) and the centroid radius r_v -- not from a centred difference on
+x1v. That is what makes f_sum meaningful: the initial condition is balanced
+analytically, so what drives the run is precisely the part of that balance the
+discretisation fails to reproduce. With a centred difference f_sum measured the error
+of the difference formula instead, and was therefore not a residual at all.
+
+  f_grav   = -beta * src1 / r_v          (gravity, as NewtonianGravity applies it)
+  f_centr  = src1 * v_phi^2              (centrifugal part of the geometric source)
+  f_press  = (divF1 + src1*p) / rho      (flux divergence + the p/r geometric term;
+                                          equals -(1/rho) dP/dr in a static state)
+  f_sum    = f_grav + f_centr + f_press  (discrete residual, ~0 in equilibrium)
+
+Also written by the problem generator, and read here when present:
+  nu_applied  the viscosity array the solver actually held, not a second copy of the
+              alpha-law formula -- so this checks the enrolled coefficient end to end
+  T_rphi      viscous shear stress rho*nu*[r d(v_phi/r)/dr + (1/r) dv_r/dphi]
+  resid_r     full discrete d(rho v_r)/dt, including advection and the viscous stress.
+              Its norm is what should converge at second order under refinement.
+              NOTE: the flux arrays are empty before the first cycle, so resid_r in the
+              t = 0 frame is meaningless -- use any later frame.
 
 BASIC USAGE:
     python3 visforces.py
@@ -47,8 +64,11 @@ EXAMPLES:
     python3 visforces.py --mode animation --log --linthresh 1e4
 
 NOTES:
-    - Reads uov .tab files (output3 in athinput with variable=uov)
-    - Column layout: i, r, j, phi, f_grav, f_centr, f_press, f_sum
+    - Reads uov .tab files (output2 in athinput with variable=uov)
+    - Column layout: i, r, j, phi, f_grav, f_centr, f_press, f_sum,
+                     [nu_applied, T_rphi, resid_r]
+      The last three are absent in runs made before they were added; this script only
+      needs the first eight.
     - Forces are phi-averaged (mean ± std shown as shaded band)
     - In equilibrium: f_grav + f_centr + f_press ≈ 0
 
@@ -115,10 +135,10 @@ FORCE_COLORS = {
 }
 
 FORCE_LABELS = {
-    'f_grav':  r'$f_\mathrm{grav} = -\beta/r^2$',
-    'f_centr': r'$f_\mathrm{centr} = v_\phi^2/r$',
-    'f_press': r'$f_\mathrm{press} = -(1/\rho)\,\partial P/\partial r$',
-    'f_sum':   r'$f_\mathrm{sum} = f_\mathrm{grav}+f_\mathrm{centr}+f_\mathrm{press}$',
+    'f_grav':  r'$f_\mathrm{grav} = -\beta\,s_1/r_v$',
+    'f_centr': r'$f_\mathrm{centr} = s_1 v_\phi^2$',
+    'f_press': r'$f_\mathrm{press} = (\nabla\!\cdot\!F_1 + s_1 p)/\rho$',
+    'f_sum':   r'$f_\mathrm{sum}$ (discrete residual)',
 }
 
 # =============================================================================
@@ -280,8 +300,8 @@ def read_uov_single_block(filepath):
         raise ValueError(
             f"Expected >= 8 columns in uov file, got {ncols}.\n"
             f"File: {filepath}\n"
-            "Check that acc_disk_visc.cpp has AllocateUserOutputVariables(4) "
-            "and UserWorkBeforeOutput is implemented."
+            "Check that acc_disk_visc_vv.cpp calls AllocateUserOutputVariables() "
+            "and that UserWorkBeforeOutput is implemented."
         )
 
     return {
@@ -655,7 +675,7 @@ def main():
         print(f"ERROR: No uov .tab files found in: {data_dir}")
         print()
         print("Expected: files with 8 columns (i, r, j, phi, f_grav, f_centr, f_press, f_sum)")
-        print("Make sure acc_disk_visc.cpp has AllocateUserOutputVariables(4) and is rebuilt.")
+        print("Make sure acc_disk_visc_vv.cpp has AllocateUserOutputVariables(4) and is rebuilt.")
         sys.exit(1)
 
     available_frames = sorted(frames_dict.keys())
