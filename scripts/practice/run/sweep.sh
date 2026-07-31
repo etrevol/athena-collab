@@ -32,8 +32,8 @@
 
 # ── CONFIGURATION ─────────────────────────────────────────────────────────────
 
-PROBLEM="acc_disk_visc"
-INPUT_TEMPLATE="inputs/hydro/athinput.acc_disk_visc"
+PROBLEM="acc_disk_visc_vv"
+INPUT_TEMPLATE="inputs/hydro/athinput.acc_disk_visc_vv"
 ATHENA_BIN="bin/athena"
 RESULTS_BASE="results/sweeps"
 

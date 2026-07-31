@@ -121,7 +121,13 @@ CONFIG = {
     'num_workers': max(1, cpu_count() - 2),  # Leave 2 cores for system
     'subsample': 1,
     'chunk_size': 100,  # Process frames in chunks to save memory
+    'normalize': 'none',  # 'azimuthal' subtracts the axisymmetric part; see below
 }
+
+# Fields whose azimuthal mean is positive, so the deviation is worth showing as a
+# fraction of it. The velocities are not on this list: <v_r> is close to zero, and
+# dividing by it turns a small deviation into a large meaningless number.
+RELATIVE_NORM_VARS = ['density', 'pressure']
 
 VARIABLE_INFO = {
     'density': {
@@ -202,6 +208,9 @@ parser.add_argument("--phi_min", type=float, default=None,
                     help="Minimum azimuthal angle for plotting (radians)")
 parser.add_argument("--phi_max", type=float, default=None,
                     help="Maximum azimuthal angle for plotting (radians)")
+parser.add_argument("--normalize", default="none", choices=["none", "azimuthal"],
+                    help="azimuthal: plot the deviation from the azimuthal mean, which "
+                         "is the only way non-axisymmetric modes are visible at all")
 parser.add_argument("--vmin_percentile", type=float, default=2.0,
                     help="Lower percentile for color scale (default: 2.0, filters extreme low values)")
 parser.add_argument("--vmax_percentile", type=float, default=98.0,
@@ -235,6 +244,19 @@ CONFIG['phi_min'] = args.phi_min
 CONFIG['phi_max'] = args.phi_max
 CONFIG['vmin_percentile'] = args.vmin_percentile
 CONFIG['vmax_percentile'] = args.vmax_percentile
+CONFIG['normalize'] = args.normalize
+
+if args.normalize == 'azimuthal':
+    # The normalised fields are signed and centred on zero, so a sequential map on a log
+    # scale would be both wrong and unreadable. One hue each side of a neutral middle.
+    CONFIG['log_scale_vars'] = []
+    for _v, _info in VARIABLE_INFO.items():
+        _info['log'] = False
+        _info['cmap'] = 'RdBu_r'
+        _rel = _v in RELATIVE_NORM_VARS
+        _info['label'] = (_info['label'].split(' (')[0]
+                          + (r'$/\langle\cdot\rangle_\phi - 1$' if _rel
+                             else r'$ - \langle\cdot\rangle_\phi$'))
 
 print("="*80)
 print("ATHENA++ 2D VISUALIZER")
@@ -394,8 +416,8 @@ def filter_data_by_bounds(data, r_min=None, r_max=None, phi_min=None, phi_max=No
     
     # If no filtering needed, return original data
     if np.all(r_mask) and np.all(phi_mask):
-        return data
-    
+        return normalize_azimuthal(data)
+
     # Create filtered data
     filtered_data = {
         'time': data['time'],
@@ -413,8 +435,39 @@ def filter_data_by_bounds(data, r_min=None, r_max=None, phi_min=None, phi_max=No
             filtered_array = data[key][phi_mask, :][:, r_mask]
             # Keep on same device (GPU or CPU)
             filtered_data[key] = filtered_array
-    
-    return filtered_data
+
+    return normalize_azimuthal(filtered_data)
+
+
+def normalize_azimuthal(data):
+    """Replace each field by its deviation from the azimuthal mean.
+
+    Non-axisymmetric structure - a growing Papaloizou-Pringle mode, a spiral arm - is a
+    percent-level perturbation sitting on a background that spans many decades. On any
+    colour scale wide enough to show the disk it is invisible; the polar view of a disk
+    with a healthy m = 2 mode looks perfectly round. Dividing out the axisymmetric part
+    is what makes it appear, and costs one line per field.
+
+        density, pressure   f / <f>_phi - 1      (relative: <f> is positive)
+        velocities          f - <f>_phi          (absolute: <v_r> is ~0)
+
+    The result is signed and centred on zero, so the caller also switches to a diverging
+    colour map and turns off log scaling.
+    """
+    if CONFIG.get('normalize') != 'azimuthal':
+        return data
+    out = dict(data)
+    for key in ['density', 'pressure', 'vel_r', 'vel_phi', 'vel_z']:
+        if key not in data:
+            continue
+        field = to_cpu(data[key])
+        mean = np.mean(field, axis=0)                     # average over phi, per radius
+        if key in RELATIVE_NORM_VARS:
+            safe = np.where(np.abs(mean) > 0.0, mean, 1.0)
+            out[key] = field / safe[None, :] - 1.0
+        else:
+            out[key] = field - mean[None, :]
+    return out
 
 # =============================================================================
 # PARALLEL PROCESSING HELPERS (must be at module level for pickling)

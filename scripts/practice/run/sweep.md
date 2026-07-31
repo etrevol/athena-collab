@@ -29,8 +29,8 @@ nohup bash scripts/practice/run/sweep.sh > /dev/null 2>&1 & echo $!
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PROBLEM` | `acc_disk_visc` | Problem name (matches the `.cpp` filename) |
-| `INPUT_TEMPLATE` | `inputs/hydro/athinput.acc_disk_visc` | Input-file template |
+| `PROBLEM` | `acc_disk_visc_vv` | Problem name (matches the `.cpp` filename) |
+| `INPUT_TEMPLATE` | `inputs/hydro/athinput.acc_disk_visc_vv` | Input-file template |
 | `HANG_TIMEOUT` | `90` | Seconds without sim_time progress → kill |
 | `ETA_POLL_INTERVAL` | `5` | How often to check progress in the log (sec) |
 | `USE_MPI` | `0` | `1` — enable MPI (needs a build with `-mpi`) |
@@ -78,8 +78,8 @@ declare -A ABBREV=(
 results/sweeps/sweep-YYYYMMDD-HHMMSS/
   sweep.log                  ← full console transcript
   REPORT.md                  ← final Markdown report
-  acc_disk_visc.cpp          ← source snapshot at run time
-  athinput.acc_disk_visc     ← input-template snapshot
+  acc_disk_visc_vv.cpp       ← source snapshot at run time
+  athinput.acc_disk_visc_vv  ← input-template snapshot
   t01_nu0.0_a0.0/
     athinput.in              ← modified input for this test
     params.txt               ← which parameters were overridden
