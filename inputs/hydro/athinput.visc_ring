@@ -1,0 +1,94 @@
+<comment>
+problem   = Lynden-Bell & Pringle (1974) viscously spreading ring
+reference = LBP74, MNRAS 168, 603; used as the reference viscous-disk test
+configure = --prob=visc_ring --coord=cylindrical
+
+<job>
+problem_id = visc_ring     # basename of output filenames
+
+<output1>
+file_type  = tab           # output format
+variable   = prim          # variables to be output
+dt         = 6.8           # time increment between outputs
+dcycle     = -1            # cycle increment between outputs (-1 = unused)
+data_format = %24.16e      # 6 significant digits cannot resolve what this test measures
+
+<output2>
+file_type  = hst           # output format
+dt         = 1.4           # time increment between outputs
+dcycle     = -1            # cycle increment between outputs (-1 = unused)
+data_format = %24.16e      # output format specifier
+
+<time>
+cfl_number = 0.4           # Courant, Friedrichs & Lewy number
+nlim       = -1            # cycle limit (-1 = unlimited)
+tlim       = 68.3          # time limit: tau runs 0.018 -> 0.10 at nu = 1e-4
+integrator = vl2           # time integration algorithm
+xorder     = 2             # order of spatial reconstruction
+ncycle_out = 100000        # interval for stdout summary info
+
+<mesh>
+nx1    = 128           # number of zones in X1-direction
+x1min  = 0.2           # minimum value of X1
+x1max  = 2.0           # maximum value of X1
+x1rat  = 1.0           # ratio of adjacent cell widths in X1
+ix1_bc = user          # inner-X1 boundary condition flag
+ox1_bc = user          # outer-X1 boundary condition flag
+
+# The problem is axisymmetric, so azimuthal cells buy nothing but cost time. They are
+# here only because the run is 2D; 32 is enough that the azimuthal Courant condition
+# never sets the timestep.
+nx2    = 32            # number of zones in X2-direction
+x2min  = 0.0           # minimum value of X2
+x2max  = 6.28318530718 # maximum value of X2
+ix2_bc = periodic      # inner-X2 boundary condition flag
+ox2_bc = periodic      # outer-X2 boundary condition flag
+
+nx3    = 1             # number of zones in X3-direction
+x3min  = -0.5          # minimum value of X3
+x3max  = 0.5           # maximum value of X3
+ix3_bc = periodic      # inner-X3 boundary condition flag
+ox3_bc = periodic      # outer-X3 boundary condition flag
+
+<meshblock>
+nx1 = 128           # MeshBlock size in X1-direction
+nx2 = 32            # MeshBlock size in X2-direction
+nx3 = 1             # MeshBlock size in X3-direction
+
+<hydro>
+# gamma near 1 keeps the gas isothermal in practice. The analytic solution assumes no
+# pressure at all; with a real adiabatic index, viscous heating over one spreading time
+# thickens the disk by a factor of a few and changes the spreading being measured.
+gamma  = 1.01          # ratio of specific heats
+dfloor = 1e-12         # density floor
+pfloor = 1e-14         # pressure floor
+
+<problem>
+GM         = 1.0       # point mass; drives Athena++'s own HydroSourceTerms::PointMass
+nu_iso     = 1e-4      # constant kinematic viscosity; 0 measures the scheme's own
+r_ring     = 1.0       # initial ring radius R0
+tau0       = 0.018     # dimensionless time the run starts from
+sigma_peak = 1.0       # surface density at the ring centre at tau0
+sigma_bg   = 1e-6      # uniform background, so the domain is never empty
+# The analytic solution assumes purely Keplerian rotation. A gas ring with a steep edge
+# is not quite Keplerian: pressure support shifts v_phi by O(h^2 dln(rho)/dlnr), which at
+# h = 0.05 reached 8.8% at the edge. h = 0.02 puts that below 1.5%, and costs nothing -
+# the timestep is set by v_phi, not by c_s.
+aspect     = 0.02      # h = c_s / v_K
+
+# ==============================================================================
+# THE TEST
+# ==============================================================================
+# Sigma(x, tau) = M/(pi R0^2) * (1/(tau x^{1/4})) * I_{1/4}(2x/tau) * exp(-(1+x^2)/tau)
+#   x = R/R0,  tau = tau0 + 12 nu t / R0^2
+#
+# With nu = 1e-4 one unit of tau takes t = R0^2/(12 nu) = 833.3, so tlim = 68.3
+# advances tau by 0.082, i.e. 0.018 -> 0.100. That is 10.9 orbits at R0.
+#
+# Two ways to use it:
+#   nu_iso = 1e-4   compare Sigma(r, t) with the analytic solution -> is the viscous
+#                   operator right, and does the error converge?
+#   nu_iso = 0      there is nothing to spread the ring, so whatever spreading appears
+#                   is the scheme's own. Fitting tau(t) gives nu_num as a NUMBER, not
+#                   as the upper bound a global angular-momentum budget can give.
+# ==============================================================================

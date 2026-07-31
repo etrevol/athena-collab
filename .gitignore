@@ -74,6 +74,7 @@ doc/doxy*
 /scripts/*
 !/scripts/practice
 !/scripts/theory
+!/scripts/vv
 /materials
 /results
 .github
@@ -84,3 +85,4 @@ __pycache__/
 # Agent context files
 CLAUDE.md
 **/CLAUDE.md
+scripts/vv/**/__pycache__/
