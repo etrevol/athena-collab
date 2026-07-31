@@ -1,0 +1,70 @@
+<comment>
+problem   = A1 -- Lynden-Bell & Pringle viscously spreading ring
+configure = --prob=visc_ring --coord=cylindrical
+generated = rendered by vvkit from athinput.ring.template
+
+# The only exact TIME-DEPENDENT solution available here. The torus is stationary, so it
+# can show that the scheme preserves an equilibrium but never that the viscous operator
+# transports anything correctly.
+#
+# nx2 stays at 32 while nx1 is refined: the solution is axisymmetric, so refining phi
+# buys nothing. This needs vvkit to take each coordinate's cell count from the data
+# rather than from the single refinement value.
+#
+# tau = tau0 + 12 nu t / R0^2 = 0.018 + 12*1e-4*68.3 = 0.09996 at tlim.
+
+<job>
+problem_id = visc_ring
+
+<output1>
+file_type   = tab         # output format
+variable    = prim        # rho, press, vel1, vel2, vel3
+dt          = 68.3        # dumps at t = 0 and t = tlim only
+data_format = %24.16e     # output format specifier
+
+<time>
+cfl_number = 0.4         # Courant, Friedrichs & Lewy number
+nlim       = -1          # cycle limit (-1 = unlimited)
+tlim       = 68.3        # time limit
+integrator = vl2         # time integration algorithm
+xorder     = 2           # order of spatial reconstruction
+ncycle_out = 1000000     # interval for stdout summary info
+
+<mesh>
+nx1    = {{ case.refinement_value | int }}   # number of zones in X1-direction
+x1min  = 0.2           # minimum value of X1
+x1max  = 2.0           # maximum value of X1
+x1rat  = 1.0           # ratio of adjacent cell widths in X1
+ix1_bc = user          # inner-X1 boundary condition flag
+ox1_bc = user          # outer-X1 boundary condition flag
+
+nx2    = 32            # number of zones in X2-direction (axisymmetric: not refined)
+x2min  = 0.0           # minimum value of X2
+x2max  = 6.28318530718 # maximum value of X2
+ix2_bc = periodic      # inner-X2 boundary condition flag
+ox2_bc = periodic      # outer-X2 boundary condition flag
+
+nx3    = 1             # number of zones in X3-direction
+x3min  = -0.5          # minimum value of X3
+x3max  = 0.5           # maximum value of X3
+ix3_bc = periodic      # inner-X3 boundary condition flag
+ox3_bc = periodic      # outer-X3 boundary condition flag
+
+<meshblock>
+nx1 = {{ case.refinement_value | int }}   # MeshBlock size in X1-direction
+nx2 = 32            # MeshBlock size in X2-direction
+nx3 = 1             # MeshBlock size in X3-direction
+
+<hydro>
+gamma  = 1.01          # ratio of specific heats
+dfloor = 1e-12         # density floor
+pfloor = 1e-14         # pressure floor
+
+<problem>
+GM         = 1.0       # central mass
+nu_iso     = 1e-4      # constant kinematic viscosity
+r_ring     = 1.0       # initial ring radius R0
+tau0       = 0.018     # dimensionless time at t = 0
+sigma_peak = 1.0       # analytic peak surface density at t = 0
+sigma_bg   = 1e-6      # background floor added to the analytic profile
+aspect     = {{ params.get('aspect', 0.02) }}      # h = c_s / v_K

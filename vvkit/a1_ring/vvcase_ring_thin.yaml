@@ -1,0 +1,71 @@
+# A1 -- Lynden-Bell & Pringle viscously spreading ring.
+#
+# The only exact TIME-DEPENDENT solution in this project, and the only one that tests
+# whether the viscous operator transports mass correctly rather than merely preserving a
+# steady state.
+#
+#   Sigma(x, tau) = M/(pi R0^2) * (1/(tau x^{1/4})) * I_{1/4}(2x/tau) * exp(-(1+x^2)/tau)
+#   tau           = tau0 + 12 nu t / R0^2                      (LBP 1974)
+#
+# The generator fixes M by requiring the analytic peak at x = 1 to equal sigma_peak at
+# tau0, so that the normalisation is resolution independent. Writing the same condition
+# here makes M/(pi R0^2) cancel: the profile below is normalised by its own value at
+# (x = 1, tau = tau0), which is exactly what the generator does.
+#
+# vvkit substitutes t with the upper bound of domain.t, so tau is written out in full and
+# evaluates at tlim.
+#
+# This study needs two things that vvkit could not do before this branch:
+#   - a modified Bessel function in the exact solution (numpy-only lambdify raises
+#     NameError on besseli; scipy is now in the module list)
+#   - a mesh that is not square in index space, since nx2 stays at 32 while nx1 is
+#     refined -- the solution is axisymmetric, so refining phi buys nothing
+version: 1
+name: a1_ring_sigma_thin
+
+solver:
+  type: athena++
+  template: athinput.ring.template
+  timeout_s: 7200.0
+  plugin_args:
+    executable: /home/etrevol/athena-vvkit/bin/athena_visc_ring
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out1"
+    fields:
+      rho: rho
+
+mms:
+  operator: "None"
+  # Sigma normalised to sigma_peak = 1 at (x = 1, tau = tau0), plus the background the
+  # generator adds. tau0 = 0.018, nu = 1e-4, R0 = 1.
+  solution: >-
+    1.0e-6 +
+    ( besseli(1/4, 2*x/(0.018 + 0.0012*t)) * exp(-(1 + x**2)/(0.018 + 0.0012*t))
+      / ((0.018 + 0.0012*t) * x**(1/4)) )
+    /
+    ( besseli(1/4, 2/0.018) * exp(-2/0.018) / 0.018 )
+  symbols: {}
+  domain:
+    x: [0.2, 2.0]
+    y: [0.0, 6.28318530718]
+    t: [0.0, 68.3]
+
+study:
+  user_params:
+    aspect: 0.01
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [64, 128, 256]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2, Linf]
+  exclude_boundary_cells: 2
+  expected_order: 2.0
+  order_tolerance: 0.5
+
+report:
+  formats: [html, json]
+  output_dir: reports/
