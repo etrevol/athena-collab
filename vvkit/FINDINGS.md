@@ -23,8 +23,9 @@ cell_average`, `quadrature_order: 5`, ladder `nx1 ∈ {64, 128, 256, 512}` unles
 | **M2b** | `rho`, `press` | analytic profiles, one run | 1.620 / **1.740** | 1.297 / 1.608 | — | fails |
 | **M3** | `nu_applied` | α-law | **1.812** (R²=0.999) | 1.097 | *does not converge* | fails |
 | **M4** | `T_rphi` | analytic shear stress | **2.018** (R²=1.0000) | 2.017 | 1.899 | **PASSES** |
+| **A1** | ring `rho` at τ=0.1 | Lynden-Bell & Pringle Σ(x,τ) | 0.490 | 0.445 | 0.501 | fails — see §5 |
 
-M2b used `nx1 ∈ {64, 128, 256}`.
+M2b and A1 used `nx1 ∈ {64, 128, 256}`.
 
 ---
 
@@ -104,7 +105,54 @@ cycles from a stationary initial condition, so `dν/dt ≈ 0` and the lag has no
 behind. What was actually measured is the spatial representation error. Testing the lag
 claim needs either a run in which ν genuinely evolves, or refinement of `dt` at fixed `h`.
 
-## 5. Cross-check against the existing suite
+## 5. The spreading ring has an error floor that refinement does not remove
+
+A1 compares the density profile against the Lynden-Bell & Pringle solution at τ = 0.1,
+i.e. 10.9 orbits of viscous spreading. It runs — this needed the special-function fix,
+since a numpy-only `lambdify` cannot evaluate `besseli` — and the normalisation is
+right: the analytic peak is 0.4317 against 0.4325 measured at 64², reproduced to 0.2%.
+
+But the L1 error stalls:
+
+```
+4.530e-04  →  2.673e-04  →  2.297e-04        (64 → 128 → 256)
+```
+
+An apparent order of 0.49 is not a scheme property; it is a floor at ~2.3e-4 that the
+grid cannot reach past.
+
+**A hypothesis that did not survive testing.** The obvious suspect was disc thickness:
+LBP solves the razor-thin diffusion equation with no pressure, while the code solves the
+full Euler system with `c_s = aspect · v_K`. With `aspect = 0.02`, `aspect² = 4e-4` sits
+suspiciously close to the observed floor. So the study was repeated with `aspect = 0.01`,
+where the floor should have dropped fourfold. It did not:
+
+| | 64 | 128 | 256 |
+|---|---|---|---|
+| `aspect = 0.02` | 4.53e-4 | 2.67e-4 | 2.30e-4 |
+| `aspect = 0.01` | 2.11e-4 | 2.28e-4 | 2.49e-4 |
+
+The floor is unchanged, and in the thin case the error *grows* with refinement. Finite
+disc thickness is not the explanation.
+
+The most likely remaining cause is **domain truncation**. LBP assumes an infinite disc;
+this run has diode boundaries at `r ∈ [0.2, 2.0]`, and by τ = 0.1 the ring's inner tail
+has reached the inner boundary, where the analytic Σ is of order 3e-5 — the same size as
+the discrepancy. That is a property of the setup, not of the grid, so refinement cannot
+remove it. Confirming this would need a wider domain or a shorter run; it was not done.
+
+This also explains a design decision in the existing suite. `scripts/vv/vvlib/ring.py`
+does not compare profiles: it **fits τ** and infers `ν_eff` from it. A fit is insensitive
+to a boundary-induced offset, which a pointwise comparison is not. Their reported
+`ν_eff` accurate to −0.4% and this study's error floor are consistent — they measure
+different things, and for this configuration the fit is the sounder instrument.
+
+The general lesson, which applies to vvkit as much as to this model: **the exact solution
+of a simplified model is not the exact solution of what the code solves.** Comparing
+against it measures the sum of the discretisation error and the modelling difference, and
+only the first of those converges.
+
+## 6. Cross-check against the existing suite
 
 | quantity | vvkit (this work) | `scripts/vv` | formulary | agree? |
 |---|---|---|---|---|
@@ -120,7 +168,7 @@ contradiction. The formulary's figure is self-convergence of the azimuthally ave
 compares the full 2D field, cell by cell, against the exact profile. The stricter
 measurement gives the lower number, which is the expected ordering.
 
-## 6. GCI and the asymptotic range
+## 7. GCI and the asymptotic range
 
 With the GCI computed from a proper integral functional (see `FEEDBACK.md` — it was
 previously sampled from a single array cell and was meaningless), the studies report:
@@ -140,7 +188,7 @@ the two can converge at different rates — a volume-weighted mean of a signed q
 admits cancellation that the norms do not. Worth following up; it does not undermine the
 order measurement.
 
-## 7. What was not done
+## 8. What was not done
 
 Stated plainly rather than left to inference:
 
@@ -150,7 +198,8 @@ Stated plainly rather than left to inference:
   boundary conditions from `u_m(x, y, t)` was not written.
 - **M6 (mass budget from `.hst`)** — not run. Requires a `.hst` reader in the adapter and
   the conservation path reconnected to the report; neither was done.
-- **A1 (Lynden-Bell & Pringle ring)** — not run. The binary is built
-  (`bin/athena_visc_ring`) and the anisotropic-mesh limitation that would have forced a
-  1D workaround is now fixed, so this is ready to run as-is.
 - **Temporal convergence** — not attempted.
+
+A1 *was* run (see §5) but does not yield an order for this configuration; a wider domain
+or a shorter integration would be needed to separate the scheme's error from the
+boundary's.
