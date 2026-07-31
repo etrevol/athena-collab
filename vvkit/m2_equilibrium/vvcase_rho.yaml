@@ -1,0 +1,58 @@
+# M2 -- how well the scheme preserves the exact Papaloizou-Pringle equilibrium.
+#
+# The exact solution is the analytic torus profile itself, taken verbatim from
+# src/pgen/acc_disk_visc_vv.cpp:
+#
+#   f(r)   = r_c/r - (r_c/r)^2/2 - C'      with r_c = 1.0, C' = 0.2
+#   f_c    = f(r_c) = 0.3
+#   n      = 1/(gamma - 1) = 3             exactly, since gamma = 4/3
+#   rho(r) = (f/f_c)^n + rho_atm  where f > 0,  else rho_atm
+#
+# The generator writes rho as a POINT value at the volume-centroid radius, while this
+# study compares against the CELL AVERAGE. The difference between the two is O(h^2), so
+# even a perfectly preserved equilibrium contributes a second-order term here; that term
+# is part of what a finite-volume code's solution error legitimately is.
+#
+# Cross-check target: scripts/vv checks.convergence_checks self-converges <rho>_phi and
+# bands the order in [1.0, 2.5]; the formulary records p = 2.21 at N = 512.
+version: 1
+name: m2_equilibrium_rho
+
+solver:
+  type: athena++
+  template: athinput.equilibrium.template
+  timeout_s: 21600.0
+  plugin_args:
+    executable: /home/etrevol/athena-vvkit/bin/athena_acc_disk
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out1"
+    fields:
+      rho: rho
+
+mms:
+  operator: "None"
+  solution: "Piecewise((((1.0/x - 0.5/x**2 - 0.2)/0.3)**3 + 0.0001, 1.0/x - 0.5/x**2 - 0.2 > 0), (0.0001, True))"
+  symbols: {}
+  domain:
+    x: [0.35, 5.55]
+    y: [0.0, 6.28318530718]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [64, 128, 256, 512]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2, Linf]
+  # Drop the cells nearest each radial boundary: the user BC extrapolates there, so those
+  # cells measure the boundary implementation rather than the interior scheme.
+  exclude_boundary_cells: 4
+  expected_order: 2.0
+  order_tolerance: 0.5
+
+report:
+  formats: [html, json]
+  output_dir: reports/

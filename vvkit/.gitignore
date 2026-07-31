@@ -1,0 +1,7 @@
+# Solver runs and generated reports: reproducible from the configs, and large
+# (a single .tab dump is 59 MB at 512^2).
+workdir*/
+reports/
+# Transient console captures from a run.
+*_run*.log
+tools/build.log

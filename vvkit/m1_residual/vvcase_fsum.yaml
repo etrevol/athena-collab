@@ -1,0 +1,51 @@
+# M1 -- order of the discrete force residual.
+#
+# The exact solution is identically zero: f_sum is the sum of the gravitational,
+# centrifugal and pressure terms evaluated with the solver's OWN face fluxes and
+# geometric factors, so in exact discrete equilibrium it vanishes. What is left is the
+# scheme's residual, and its rate of decay under refinement is the quantity of interest.
+#
+# Cross-check target: scripts/vv checks.residual_checks bands the core order in
+# [1.5, 2.5]; the formulary records p = 1.97 in the core and 1.41 at the surface.
+version: 1
+name: m1_residual_fsum
+
+solver:
+  type: athena++
+  template: athinput.residual.template
+  timeout_s: 3600.0
+  plugin_args:
+    executable: /home/etrevol/athena-vvkit/bin/athena_acc_disk
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out2"
+    # uov columns are f_grav f_centr f_press f_sum nu_applied T_rphi resid_r.
+    # Only the mapped ones are returned, and the FIRST one is what the error is
+    # computed against (cli/main.py:186), so this map must contain exactly one entry.
+    fields:
+      f_sum: f_sum
+
+mms:
+  operator: "None"
+  solution: "0.0"
+  symbols: {}
+  domain:
+    x: [0.35, 5.55]
+    y: [0.0, 6.28318530718]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [64, 128, 256, 512]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2, Linf]
+  exclude_boundary_cells: 0
+  expected_order: 2.0
+  order_tolerance: 0.5
+
+report:
+  formats: [html, json]
+  output_dir: reports/

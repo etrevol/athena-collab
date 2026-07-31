@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# vvkit CLI wrapper.
+#
+# vvkit needs Python >= 3.12 and this WSL distro only has 3.10, so the CLI runs from the
+# Windows venv over interop. That is also the mode the plugin documents: the athena++
+# adapter is given use_wsl: true and shells back into WSL to build and run Athena++.
+# Windows accepts the \\wsl.localhost\... working directory, so relative paths in the
+# vvcase.yaml keep working from wherever this is invoked.
+exec /mnt/d/MyProjects/vvkit/.venv/Scripts/python.exe -m vvkit.cli.main "$@"
