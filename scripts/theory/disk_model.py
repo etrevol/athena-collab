@@ -3,7 +3,7 @@
 One source of truth for the dimensionless model, imported by the notebooks and by
 make_athinput.py, so a number cannot be right in one place and wrong in another.
 
-    python3 disk_model.py     # write inputs/hydro/athinput.acc_disk_visc and check it
+    python3 disk_model.py     # write inputs/hydro/athinput.acc_disk_visc_vv and check it
 
 That is the whole workflow. Physics lives in the DiskModel field defaults; resolution and
 run length live in the RUN_SETUP block below. Edit either, run this file, and the input
@@ -40,9 +40,16 @@ RUN_SETUP = dict(
     meshblock=None,     # (n1, n2), or None for a single block
     cfl=0.4,
     fmt="tab",          # "tab" or "hdf5"
+    # Seed for the Papaloizou-Pringle modes. amp = 0 leaves the run axisymmetric, which
+    # is the control case, NOT the physical one: an l = const torus is linearly unstable
+    # and only stays smooth because nothing excites it. See PP84.
+    pert_amp=0.0,       # delta v_r in units of the local sound speed
+    pert_kind="single",  # "single" (one m), "multi" (1..m, random phases), "noise"
+    pert_m=2,           # azimuthal mode number
+    pert_seed=1,        # any integer; the seed field depends on it alone
 )
 # Where the generated file goes, relative to the repository root.
-RUN_OUTPUT = "inputs/hydro/athinput.acc_disk_visc"
+RUN_OUTPUT = "inputs/hydro/athinput.acc_disk_visc_vv"
 # ============================================================================
 
 # CGS
@@ -53,6 +60,7 @@ G_GRAV = 6.67430e-8         # cm^3 g^-1 s^-2
 M_SUN = 1.98841e33          # g
 PC = 3.0856775814913673e18  # cm
 YR = 3.15576e7              # s
+A_RAD = 7.5657e-15          # erg cm^-3 K^-4, radiation constant
 
 
 @dataclass
@@ -67,7 +75,11 @@ class DiskModel:
     rho_0: float = 1.0e-13   # reference density [g/cm^3]
 
     # disk geometry / thermodynamics
-    gamma: float = 1.3       # adiabatic index
+    # gamma = 4/3 is the radiation-dominated value, and the torus IS radiation dominated
+    # at these (chi, rho_0) - see the regime block in summary(). It also puts the
+    # polytropic index at exactly n = 3, the value PP84 used, so their growth rates are
+    # directly comparable rather than an order-of-magnitude anchor.
+    gamma: float = 4.0 / 3.0  # adiabatic index
     r_center: float = 1.0    # density maximum, in units of r_0
     C_prime: float = 0.2     # thickness parameter, must be < 0.5
 
@@ -123,9 +135,25 @@ class DiskModel:
               / (n + 1.0) * np.sqrt(self.r_center))
         tau_visc = self.r_center**2 / nu if nu > 0 else np.inf
 
+        # Mid-plane thermodynamic state. The torus normalises p/rho to the local gravity,
+        # so cs0 cancels: (p/rho)_phys depends on chi, C', gamma and r_center alone, and
+        # T_0 and mu drop out of every physical prediction. What they do NOT drop out of
+        # is the reading of p as an ideal-gas pressure, and that reading is inconsistent
+        # here: at the T_mid it implies, radiation would supply p_rad_over_gas times more
+        # pressure than the total we have. The consistent reading is p = a T^4/3, giving
+        # T_mid_rad. None of this touches the dynamics.
+        pr_mid = beta * f_c / (self.r_center * (n + 1.0))     # (p/rho) at r_c, code units
+        p_mid = self.rho_0 * pr_mid * cs0_sq                  # erg/cm^3
+        T_mid = pr_mid * cs0_sq * self.mu * M_P / K_B         # ideal-gas reading [K]
+        T_mid_rad = (3.0 * p_mid / A_RAD) ** 0.25             # radiation reading [K]
+        p_rad_over_gas = A_RAD * T_mid**4 / (3.0 * p_mid)
+
         return dict(
             cs0=cs0, n_poly=n, beta=beta, r_g=r_g, L_0=L_0,
             V_0=cs0, T_scale=L_0 / cs0,
+            pr_mid=pr_mid, p_mid=p_mid, T_mid=T_mid, T_mid_rad=T_mid_rad,
+            p_rad_over_gas=p_rad_over_gas,
+            v_K_over_c=np.sqrt(beta) * cs0 / C_LIGHT,
             mass_scale=self.rho_0 * L_0**3 / M_SUN,
             mdot_scale=self.rho_0 * L_0**2 * cs0 * YR / M_SUN,
             r_in=r_in, r_out=r_out, P_orb=P_orb, f_center=f_c,
@@ -241,6 +269,17 @@ class DiskModel:
         add(f"  T_scale       {d['T_scale']:.6e} s      ({d['T_scale'] / YR:.1f} yr)")
         add(f"  mass_scale    {d['mass_scale']:.4f} M_sun per code unit")
         add(f"  mdot_scale    {d['mdot_scale']:.6f} M_sun/yr per code unit")
+        add("mid-plane regime  (an interpretation of p, not an input)")
+        add(f"  (p/rho)       {d['pr_mid']:.6e} code   p = {d['p_mid']:.6e} erg/cm3")
+        add(f"  T_mid         {d['T_mid']:.6e} K   reading p as ideal gas")
+        add(f"  p_rad/p_gas   {d['p_rad_over_gas']:.3e}   at that T_mid")
+        if d["p_rad_over_gas"] > 1.0:
+            add(f"                -> inconsistent: radiation would dominate. The")
+            add(f"                   consistent reading is p = aT^4/3, T = "
+                f"{d['T_mid_rad']:.4e} K.")
+            add(f"                   T_0 and mu cancel from every physical result;")
+            add(f"                   they only fix the code unit of velocity.")
+        add(f"  v_K/c at r_c  {d['v_K_over_c']:.4f}   (Newtonian dynamics valid)")
         add("viscosity")
         if self.alpha > 0:
             add(f"  alpha         {self.alpha}")

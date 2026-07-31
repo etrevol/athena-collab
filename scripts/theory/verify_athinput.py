@@ -5,8 +5,8 @@ Catches values that drifted from what disk_model.py derives, plus the traps that
 easy to fall into: a boundary sitting on the disk surface, floors above the ambient
 medium, and the two nu_iso/alpha combinations that silently change the physics.
 
-    verify_athinput.py inputs/hydro/athinput.acc_disk_visc
-    verify_athinput.py inputs/hydro/athinput.acc_disk_visc -q   # only warnings and failures
+    verify_athinput.py inputs/hydro/athinput.acc_disk_visc_vv
+    verify_athinput.py inputs/hydro/athinput.acc_disk_visc_vv -q   # only warnings and failures
 
 Exit status is 1 if any check fails, so it can gate a run.
 """
@@ -41,13 +41,18 @@ def num(d, key, default=None):
         return default
 
 
+def text(d, key, default=None):
+    return d.get(key, default)
+
+
 def check(path):
     p = parse_athinput(path)
     try:
         m = DiskModel(
             M_bh=num(p, "problem/M_bh", 4.5e7), T_0=num(p, "problem/T_0", 5e4),
             mu=num(p, "problem/mu", 0.6), chi=num(p, "problem/chi", 500.0),
-            rho_0=num(p, "problem/rho_0", 1e-13), gamma=num(p, "hydro/gamma", 1.3),
+            rho_0=num(p, "problem/rho_0", 1e-13),
+            gamma=num(p, "hydro/gamma", 4.0 / 3.0),
             r_center=num(p, "problem/r_center", 1.0),
             C_prime=num(p, "problem/C_prime", 0.2),
             alpha=num(p, "problem/alpha", 0.0),
@@ -122,6 +127,41 @@ def check(path):
         add(WARN, "rho_atm", f"{m.rho_atm:g} < 1e-4 with viscosity on: the cell ahead "
                              f"of the spreading inner front lacks inertia and the "
                              f"timestep collapses (measured: 1e-6 -> t=0.004)")
+
+    # -- seed perturbation --------------------------------------------------
+    # An l = const torus is linearly unstable (PP84). Without a seed the run stays
+    # axisymmetric and "stable for N orbits" says nothing about the scheme; with one it
+    # becomes a measurable growth rate. Neither setting is wrong - but which one is in
+    # force has to be explicit, because the two answer different questions.
+    pert_amp = num(p, "problem/pert_amp", 0.0)
+    pert_kind = text(p, "problem/pert_kind", "single")
+    pert_m = num(p, "problem/pert_m", 2)
+    if pert_kind not in ("single", "multi", "noise"):
+        add(FAIL, "pert_kind", f"'{pert_kind}' is not one of single, multi, noise")
+    elif pert_amp <= 0.0:
+        add(OK, "perturbation", "none: axisymmetric control run, PP modes seeded only "
+                                "by round-off")
+    elif pert_amp > 0.1:
+        add(WARN, "perturbation", f"delta v_r/c_s = {pert_amp:g} is large; the linear "
+                                  f"growth window will be short or absent")
+    else:
+        what = ("white noise" if pert_kind == "noise" else
+                f"m = 1..{pert_m:g}" if pert_kind == "multi" else f"m = {pert_m:g}")
+        add(OK, "perturbation", f"delta v_r/c_s = {pert_amp:g}, {what}")
+
+    # -- thermodynamic regime -----------------------------------------------
+    # Not pass/fail: p is fixed by the dynamics, and how we read it is a modelling
+    # choice. But reading it as an ideal gas when radiation would dominate is a
+    # self-refuting choice, and any statement in kelvin then means nothing.
+    if m.p_rad_over_gas > 1.0:
+        add(WARN, "regime", f"p_rad/p_gas = {m.p_rad_over_gas:.2e} at the ideal-gas "
+                            f"T_mid = {m.T_mid:.3e} K: radiation dominated, so that "
+                            f"reading is inconsistent (consistent one: "
+                            f"{m.T_mid_rad:.3e} K). Dynamics unaffected; do not quote "
+                            f"T_mid as a gas temperature")
+    else:
+        add(OK, "regime", f"gas pressure dominated, p_rad/p_gas = "
+                          f"{m.p_rad_over_gas:.2e}, T_mid = {m.T_mid:.3e} K")
 
     # -- run length against the viscous timescale ---------------------------
     tlim = num(p, "time/tlim")

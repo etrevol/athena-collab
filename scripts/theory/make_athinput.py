@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write athinput.acc_disk_visc from the physical parameters.
+"""Write athinput.acc_disk_visc_vv from the physical parameters.
 
 Grid bounds, tlim, output cadence and nu_iso are derived by disk_model.py instead of
 being copied by hand, which is how x1min once ended up at r_inner.
@@ -9,12 +9,13 @@ the input file to the right place and verifies it in one step. Use this script w
 want one-off parameters on the command line without editing disk_model.py.
 
     make_athinput.py                                   # defaults, to stdout
-    make_athinput.py -o inputs/hydro/athinput.acc_disk_visc
-    make_athinput.py --alpha 0.01 --orbits 200 -o inputs/hydro/athinput.acc_disk_visc
+    make_athinput.py -o inputs/hydro/athinput.acc_disk_visc_vv
+    make_athinput.py --alpha 0.01 --orbits 200 -o inputs/hydro/athinput.acc_disk_visc_vv
     make_athinput.py --T0 1.5e3 --mu 2.3 --nx1 352 --nx2 256   # molecular regime
 
 Physics flags: --M-bh --T0 --mu --chi --rho0 --gamma --C-prime --alpha --rho-atm
 Run flags:     --orbits --frames-per-orbit --nx1 --nx2 --meshblock --cfl --format
+Seed flags:    --pert-amp --pert-kind --pert-m --pert-seed
 """
 
 import argparse
@@ -25,7 +26,7 @@ from disk_model import DiskModel, orbits_to_accrete
 TEMPLATE = """\
 <comment>
 problem   = Thermally-scaled Papaloizou-Pringle accretion disk with alpha viscosity
-configure = --prob=acc_disk_visc --coord=cylindrical
+configure = --prob=acc_disk_visc_vv --coord=cylindrical
 generated = scripts/theory/make_athinput.py
 
 <job>
@@ -36,18 +37,25 @@ file_type  = {fmt:<12}# output format
 variable   = prim        # variables to be output
 dt         = {dt_out:<12.6g}# time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
+data_format = %24.16e    # output format specifier
 
 <output2>
 file_type  = {fmt:<12}# output format
 variable   = uov         # variables to be output
 dt         = {dt_out:<12.6g}# time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
+data_format = %24.16e    # output format specifier
 
 <output3>
 file_type  = hst         # output format
 dt         = {dt_out:<12.6g}# time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
 data_format = %24.16e    # output format specifier
+# All three outputs carry data_format. Athena++ defaults to %12.5e, i.e. 6 significant
+# digits: enough to look at, not enough to subtract. At that precision the difference
+# between a run and its own restart, or between two MeshBlock decompositions, is
+# quantisation rather than physics, and a grid-convergence error smaller than 1e-6 of the
+# field cannot be measured at all.
 
 <time>
 cfl_number = {cfl:<12}# Courant, Friedrichs & Lewy number
@@ -97,6 +105,11 @@ rho_atm      = {rho_atm:<8.6g}# ambient medium density
 t_atm_frac   = {t_atm_frac:<8.6g}# ambient p/rho, in units of the disk mid-plane value
 visc_rho_cut = {visc_cut:<8.6g}# density below which viscosity is tapered to zero
 
+pert_amp     = {pert_amp:<8.6g}# seed delta v_r, in units of the local sound speed (0 = off)
+pert_kind    = {pert_kind:<8}# single | multi | noise
+pert_m       = {pert_m:<8}# azimuthal mode number (single), or highest mode (multi)
+pert_seed    = {pert_seed:<8}# seed integer; the perturbation field depends on it alone
+
 M_bh     = {M_bh:<12.6g}# black hole mass [M_sun]
 rho_0    = {rho_0:<12.6g}# reference density [g/cm^3]
 T_0      = {T_0:<12.6g}# reference temperature [K]
@@ -124,6 +137,14 @@ THEORY_BLOCK = """
 # Mass scale                 : {mass_scale:.4f} M_sun per code unit
 # Mdot scale                 : {mdot_scale:.6f} M_sun/yr per code unit
 #
+# Mid-plane regime (an interpretation of p, not an input)
+#   (p/rho) at r_center      : {pr_mid:.6e} code   ({p_mid:.6e} erg/cm^3)
+#   T_mid, ideal-gas reading : {T_mid:.6e} K
+#   p_rad/p_gas at that T    : {p_rad_over_gas:.3e}
+#   T_mid, radiation reading : {T_mid_rad:.6e} K   (the self-consistent one)
+#   T_0 and mu cancel from every physical result; they set the code velocity unit only.
+#   Fixed by chi, C', gamma and r_center alone.
+#
 # Viscosity (alpha = {alpha:g})
 #   nu_iso                   : {nu_iso:.6e}
 #   tau_visc                 : {tau_visc:.6e} ({N_orbits:.1f} orbits, {tau_yr:.1f} yr)
@@ -134,10 +155,12 @@ THEORY_BLOCK = """
 
 def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
           meshblock=None, cfl=0.4, fmt="tab", dfloor=1e-12, pfloor=1e-10,
-          visc_rho_cut=None):
+          visc_rho_cut=None, pert_amp=0.0, pert_kind="single", pert_m=2, pert_seed=1):
     g = model.grid(nx1=nx1, nx2=nx2)
     mb1, mb2 = (meshblock if meshblock else (nx1, nx2))
     visc_cut = visc_rho_cut if visc_rho_cut is not None else 10.0 * model.rho_atm
+    if pert_kind not in ("single", "multi", "noise"):
+        raise ValueError(f"pert_kind={pert_kind!r} must be single, multi or noise")
 
     body = TEMPLATE.format(
         fmt=fmt, dt_out=model.P_orb / frames_per_orbit, fpo=frames_per_orbit,
@@ -146,6 +169,7 @@ def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
         r_center=model.r_center, C_prime=model.C_prime,
         nu_iso=(1.0 if model.alpha > 0 else 0.0), alpha=model.alpha,
         rho_atm=model.rho_atm, t_atm_frac=model.t_atm_frac, visc_cut=visc_cut,
+        pert_amp=pert_amp, pert_kind=pert_kind, pert_m=pert_m, pert_seed=pert_seed,
         M_bh=model.M_bh, rho_0=model.rho_0, T_0=model.T_0,
         mu=model.mu, chi=model.chi)
 
@@ -158,6 +182,8 @@ def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
         P_yr=model.P_orb * model.T_scale / YR,
         T_scale=model.T_scale, T_scale_yr=model.T_scale / YR,
         mass_scale=model.mass_scale, mdot_scale=model.mdot_scale,
+        pr_mid=model.pr_mid, p_mid=model.p_mid, T_mid=model.T_mid,
+        T_mid_rad=model.T_mid_rad, p_rad_over_gas=model.p_rad_over_gas,
         alpha=model.alpha, nu_iso=model.nu_iso, tau_visc=model.tau_visc,
         N_orbits=orbits_to_accrete(model.alpha, model.gamma, model.C_prime),
         tau_yr=model.tau_visc * model.T_scale / YR if model.alpha > 0 else float("inf"))
@@ -174,7 +200,8 @@ def main(argv=None):
                     help="mean molecular weight (0.6 ionized, 2.3 molecular; must match T0)")
     ap.add_argument("--chi", type=float, default=5.0e2, help="r_0 / r_g")
     ap.add_argument("--rho0", type=float, default=1.0e-13, help="reference density [g/cm^3]")
-    ap.add_argument("--gamma", type=float, default=1.3, help="adiabatic index")
+    ap.add_argument("--gamma", type=float, default=4.0 / 3.0,
+                    help="adiabatic index (4/3 = radiation dominated, n_poly = 3)")
     ap.add_argument("--C-prime", type=float, default=0.2, help="thickness parameter (<0.5)")
     ap.add_argument("--alpha", type=float, default=0.001, help="Shakura-Sunyaev alpha")
     ap.add_argument("--rho-atm", type=float, default=1.0e-4, help="ambient density")
@@ -186,13 +213,20 @@ def main(argv=None):
     ap.add_argument("--cfl", type=float, default=0.4)
     ap.add_argument("--format", default="tab", choices=["tab", "hdf5"],
                     dest="fmt", help="output file_type for out1/out2")
+    ap.add_argument("--pert-amp", type=float, default=0.0,
+                    help="seed delta v_r / c_s for the PP modes (0 = axisymmetric run)")
+    ap.add_argument("--pert-kind", default="single", choices=["single", "multi", "noise"])
+    ap.add_argument("--pert-m", type=int, default=2, help="azimuthal mode number")
+    ap.add_argument("--pert-seed", type=int, default=1)
     a = ap.parse_args(argv)
 
     model = DiskModel(M_bh=a.M_bh, T_0=a.T0, mu=a.mu, chi=a.chi, rho_0=a.rho0,
                       gamma=a.gamma, C_prime=a.C_prime, alpha=a.alpha,
                       rho_atm=a.rho_atm)
     text = build(model, orbits=a.orbits, frames_per_orbit=a.frames_per_orbit,
-                 nx1=a.nx1, nx2=a.nx2, meshblock=a.meshblock, cfl=a.cfl, fmt=a.fmt)
+                 nx1=a.nx1, nx2=a.nx2, meshblock=a.meshblock, cfl=a.cfl, fmt=a.fmt,
+                 pert_amp=a.pert_amp, pert_kind=a.pert_kind, pert_m=a.pert_m,
+                 pert_seed=a.pert_seed)
 
     if a.output:
         with open(a.output, "w") as fh:
