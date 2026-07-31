@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "summary": {
+    "name": "m1_residual_fsum",
+    "norms": [
+      {
+        "norm_name": "L1",
+        "observed_order": 1.83259869488087,
+        "expected_order": 2.0,
+        "std_err": 0.1767437461900185,
+        "r_squared": 0.9817367357148545,
+        "order_passed": true,
+        "gci_fine": 0.0004172063844956982,
+        "asymptotic_ratio": 1.3163568734843993,
+        "is_asymptotic": false,
+        "convergence_state": "monotonic",
+        "pairwise_orders": [
+          2.5524382994360746,
+          1.19614311294654,
+          1.9613665329047714
+        ],
+        "errors_per_grid": [
+          1447.1793294065465,
+          246.69585953874846,
+          107.66806409961214,
+          27.64755594280228
+        ],
+        "analysis_error": null
+      },
+      {
+        "norm_name": "L2",
+        "observed_order": 1.5497197682499888,
+        "expected_order": 2.0,
+        "std_err": 0.1881254615589784,
+        "r_squared": 0.9713711433219124,
+        "order_passed": true,
+        "gci_fine": 0.0005544665824006801,
+        "asymptotic_ratio": 1.6015064331848734,
+        "is_asymptotic": false,
+        "convergence_state": "monotonic",
+        "pairwise_orders": [
+          2.3426293292123224,
+          0.9530617990756634,
+          1.5523541661867557
+        ],
+        "errors_per_grid": [
+          22276.879693784736,
+          4391.902220906887,
+          2268.571508578729,
+          773.4768243360944
+        ],
+        "analysis_error": null
+      },
+      {
+        "norm_name": "Linf",
+        "observed_order": 1.1479240049306922,
+        "expected_order": 2.0,
+        "std_err": 0.18317939245758372,
+        "r_squared": 0.9515399375288511,
+        "order_passed": false,
+        "gci_fine": 0.0008789777989639446,
+        "asymptotic_ratio": 2.1158324057749582,
+        "is_asymptotic": false,
+        "convergence_state": "monotonic",
+        "pairwise_orders": [
+          1.9110497975600065,
+          0.7487774134949087,
+          0.9169936675490884
+        ],
+        "errors_per_grid": [
+          409145.85664180346,
+          108791.4700516237,
+          64742.63688531697,
+          34288.44451499614
+        ],
+        "analysis_error": null
+      }
+    ],
+    "plot_image_path": "reports\\m1_residual_fsum_plot.png",
+    "grid_sizes": [
+      0.08125,
+      0.040625,
+      0.0203125,
+      0.01015625
+    ],
+    "gci_table": [
+      {
+        "grid_triplet": "256/128/64",
+        "gci_fine": 0.0006189707036412578,
+        "safety_factor": 1.25,
+        "asymptotic_ratio": 2.0739288267392078,
+        "is_asymptotic": false,
+        "convergence_condition_rc": 0.13537515742671635,
+        "convergence_state": "monotonic"
+      },
+      {
+        "grid_triplet": "512/256/128",
+        "gci_fine": 0.0004172063844956982,
+        "safety_factor": 1.25,
+        "asymptotic_ratio": 1.3163568734843993,
+        "is_asymptotic": false,
+        "convergence_condition_rc": 0.2132844421349488,
+        "convergence_state": "monotonic"
+      }
+    ],
+    "environment": {
+      "vvkit_version": "0.1.0",
+      "platform": "Windows-11-10.0.22631-SP0",
+      "timestamp": "2026-07-31T21:17:24.151287+00:00",
+      "python_version": "3.12.1",
+      "config_echo": "# M1 -- order of the discrete force residual.\n#\n# The exact solution is identically zero: f_sum is the sum of the gravitational,\n# centrifugal and pressure terms evaluated with the solver's OWN face fluxes and\n# geometric factors, so in exact discrete equilibrium it vanishes. What is left is the\n# scheme's residual, and its rate of decay under refinement is the quantity of interest.\n#\n# Cross-check target: scripts/vv checks.residual_checks bands the core order in\n# [1.5, 2.5]; the formulary records p = 1.97 in the core and 1.41 at the surface.\nversion: 1\nname: m1_residual_fsum\n\nsolver:\n  type: athena++\n  template: athinput.residual.template\n  timeout_s: 3600.0\n  plugin_args:\n    executable: /home/etrevol/athena-vvkit/bin/athena_acc_disk\n    use_wsl: true\n    wsl_distro: Ubuntu\n    output_stream: \"out2\"\n    # uov columns are f_grav f_centr f_press f_sum nu_applied T_rphi resid_r.\n    # Only the mapped ones are returned, and the FIRST one is what the error is\n    # computed against (cli/main.py:186), so this map must contain exactly one entry.\n    fields:\n      f_sum: f_sum\n\nmms:\n  operator: \"None\"\n  solution: \"0.0\"\n  symbols: {}\n  domain:\n    x: [0.35, 5.55]\n    y: [0.0, 6.28318530718]\n\nstudy:\n  type: spatial\n  coordinate_system: cylindrical\n  refinement:\n    parameter: nx1\n    values: [64, 128, 256, 512]\n  reference: cell_average\n  quadrature_order: 5\n  norms: [L1, L2, Linf]\n  exclude_boundary_cells: 0\n  expected_order: 2.0\n  order_tolerance: 0.5\n\nreport:\n  formats: [html, json]\n  output_dir: reports/\n"
+    },
+    "mms_diagnostics": null,
+    "conservation_results": []
+  }
+}

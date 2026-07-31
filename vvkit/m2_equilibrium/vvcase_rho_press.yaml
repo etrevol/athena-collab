@@ -1,0 +1,54 @@
+# M2b -- the equilibrium measured in BOTH density and pressure, in one study.
+#
+# Same run as vvcase_rho.yaml, but mms.solution is a dict keyed by field name, so each
+# field is measured against its own analytic profile instead of the study collapsing to
+# whichever entry came first.
+#
+# From src/pgen/acc_disk_visc_vv.cpp, with F = max(f, 0) clipping at the torus surface:
+#
+#   rho   = (F/0.3)^3 + rho_atm
+#   press = p_norm * F^4 + p_atm,   p_norm = beta/(r_c (n+1) f_c^n), n + 1 = 4
+#
+# Constants at full precision from scripts/theory/disk_model.py.
+version: 1
+name: m2b_equilibrium_rho_press
+
+solver:
+  type: athena++
+  template: athinput.equilibrium.template
+  timeout_s: 21600.0
+  plugin_args:
+    executable: /home/etrevol/athena-vvkit/bin/athena_acc_disk
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out1"
+    fields:
+      rho: rho
+      press: press
+
+mms:
+  operator: "None"
+  solution:
+    rho: "(Max(1.0/x - 0.5/x**2 - 0.2, 0)/0.3)**3 + 1.0e-4"
+    press: "907349.61883186852 * Max(1.0/x - 0.5/x**2 - 0.2, 0)**4 + 0.73495319125381264"
+  symbols: {}
+  domain:
+    x: [0.35, 5.55]
+    y: [0.0, 6.28318530718]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [64, 128, 256]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2]
+  exclude_boundary_cells: 4
+  expected_order: 2.0
+  order_tolerance: 0.5
+
+report:
+  formats: [html, json]
+  output_dir: reports/

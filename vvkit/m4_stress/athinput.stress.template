@@ -1,0 +1,80 @@
+<comment>
+problem   = M4 -- shear stress T_rphi against the analytic profile
+configure = --prob=acc_disk_visc_vv --coord=cylindrical
+generated = rendered by vvkit from athinput.residual.template
+
+# Two cycles only. f_press, f_sum and resid_r are written as NaN at ncycle == 0 because
+# the flux arrays are still empty, so the t = 0 frame carries no residual. dcycle = 2 dumps
+# at cycle 0 and cycle 2; the adapter reads the last file, which is the valid one.
+#
+# The mesh is square in index space on purpose. vvkit derives every coordinate's cell
+# width from the single refinement value (cli/main.py:200-207), so nx2 != nx1 would give
+# the wrong cell measures and the wrong cell averages.
+
+<job>
+problem_id = acc_disk_visc
+
+<output2>
+file_type   = tab         # output format
+variable    = uov         # f_grav, f_centr, f_press, f_sum, nu_applied, T_rphi, resid_r
+dcycle      = 2           # cycle increment between outputs
+data_format = %24.16e     # output format specifier
+
+<time>
+cfl_number = 0.4         # Courant, Friedrichs & Lewy number
+nlim       = 2           # cycle limit
+tlim       = 1.0         # time limit (not reached; nlim binds first)
+integrator = vl2         # time integration algorithm
+xorder     = 2           # order of spatial reconstruction
+ncycle_out = 1000000     # interval for stdout summary info
+
+<mesh>
+nx1    = {{ case.refinement_value | int }}   # number of zones in X1-direction
+x1min  = 0.35          # minimum value of X1
+x1max  = 5.55          # maximum value of X1
+x1rat  = 1.0           # ratio of adjacent cell widths in X1
+ix1_bc = user          # inner-X1 boundary condition flag
+ox1_bc = user          # outer-X1 boundary condition flag
+
+nx2    = {{ case.refinement_value | int }}   # number of zones in X2-direction
+x2min  = 0.0           # minimum value of X2
+x2max  = 6.28318530718 # maximum value of X2
+ix2_bc = periodic      # inner-X2 boundary condition flag
+ox2_bc = periodic      # outer-X2 boundary condition flag
+
+nx3    = 1             # number of zones in X3-direction
+x3min  = -0.5          # minimum value of X3
+x3max  = 0.5           # maximum value of X3
+ix3_bc = periodic      # inner-X3 boundary condition flag
+ox3_bc = periodic      # outer-X3 boundary condition flag
+
+<meshblock>
+nx1 = {{ case.refinement_value | int }}   # MeshBlock size in X1-direction
+nx2 = {{ case.refinement_value | int }}   # MeshBlock size in X2-direction
+nx3 = 1             # MeshBlock size in X3-direction
+
+<hydro>
+gamma  = 1.3333333333333333  # ratio of specific heats
+dfloor = 1e-12         # density floor
+pfloor = 1e-10         # pressure floor
+
+<problem>
+r_center = 1.0         # radius of the disk density maximum
+C_prime  = 0.2         # disk thickness parameter (0 < C_prime < 0.5)
+nu_iso   = 0.31303954835426406         # isotropic kinematic viscosity; > 0 enables viscous fluxes
+alpha    = 0.01         # Shakura-Sunyaev viscosity parameter
+
+rho_atm      = 0.0001  # ambient medium density
+t_atm_frac   = 1       # ambient p/rho, in units of the disk mid-plane value
+visc_rho_cut = 0.001   # density below which viscosity is tapered to zero
+
+pert_amp     = 0       # seed delta v_r, in units of the local sound speed (0 = off)
+pert_kind    = single  # single | multi | noise
+pert_m       = 2       # azimuthal mode number (single), or highest mode (multi)
+pert_seed    = 1       # seed integer; the perturbation field depends on it alone
+
+M_bh     = 4.5e+07     # black hole mass [M_sun]
+rho_0    = 1e-13       # reference density [g/cm^3]
+T_0      = 50000       # reference temperature [K]
+mu       = 0.6         # mean molecular weight
+chi      = 500         # spatial scaling factor r_0 / r_g

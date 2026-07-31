@@ -1,0 +1,67 @@
+# M3 -- the alpha-viscosity coefficient the solver actually held, against the analytic law.
+#
+# DiskViscosity (src/pgen/acc_disk_visc_vv.cpp:536-563) sets
+#
+#   nu = alpha * (gamma/sqrt(beta)) * (p/rho) * r^(3/2) * w,   w = rho^2/(rho^2 + cut^2)
+#
+# from the primitives it is handed. Every factor is analytic, so the exact solution is
+# written out below with F = max(f, 0) standing for the torus shape function clipped at
+# the surface -- outside it the torus density and pressure are identically zero and only
+# the ambient remains, which is exactly what max(f, 0) reproduces.
+#
+#   coeff = alpha*gamma/sqrt(beta) = 4.2593127301104185e-05   (alpha = 0.01)
+#   rho   = (F/0.3)^3 + 1e-4
+#   p     = 907349.61883186852 * F^4 + 0.73495319125381264
+#   nu    = coeff * p * rho * x^1.5 / (rho^2 + 1e-6)
+#
+# Constants come from scripts/theory/disk_model.py at full precision, not transcribed
+# from the input file's comment block.
+#
+# PREDICTION UNDER TEST: nu_applied is the array the solver held, so it lags the output
+# primitives by one VL2 stage. That error is O(dt), and dt shrinks like h under
+# refinement, so the expected order here is 1, not 2. If this comes out at 2, the claim
+# in CLAUDE.md about the stage lag is wrong.
+version: 1
+name: m3_nu_applied
+
+solver:
+  type: athena++
+  template: athinput.nu.template
+  timeout_s: 3600.0
+  plugin_args:
+    executable: /home/etrevol/athena-vvkit/bin/athena_acc_disk
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out2"
+    fields:
+      nu_applied: nu_applied
+
+mms:
+  operator: "None"
+  solution: >-
+    4.2593127301104185e-05
+    * (907349.61883186852 * Max(1.0/x - 0.5/x**2 - 0.2, 0)**4 + 0.73495319125381264)
+    * ((Max(1.0/x - 0.5/x**2 - 0.2, 0)/0.3)**3 + 1.0e-4)
+    * x**1.5
+    / (((Max(1.0/x - 0.5/x**2 - 0.2, 0)/0.3)**3 + 1.0e-4)**2 + 1.0e-6)
+  symbols: {}
+  domain:
+    x: [0.35, 5.55]
+    y: [0.0, 6.28318530718]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [64, 128, 256, 512]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2, Linf]
+  exclude_boundary_cells: 4
+  expected_order: 1.0
+  order_tolerance: 0.5
+
+report:
+  formats: [html, json]
+  output_dir: reports/
