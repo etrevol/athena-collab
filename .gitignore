@@ -86,3 +86,4 @@ __pycache__/
 CLAUDE.md
 **/CLAUDE.md
 scripts/vv/**/__pycache__/
+.claude/
