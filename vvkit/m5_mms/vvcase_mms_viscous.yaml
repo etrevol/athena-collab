@@ -1,0 +1,92 @@
+# M5b -- manufactured solution for the 2D cylindrical NAVIER-STOKES equations.
+#
+# Extends the inviscid study with the full Newtonian stress, which is the operator this
+# whole project depends on and the one no other study here reaches. The strain terms are
+# transcribed from what Athena++ actually computes, not from memory:
+#
+#   FaceXdx  = 2 dv_r/dr                                (viscosity.cpp)
+#   FaceXdy  = r d(v_phi/r)/dr + (1/r) dv_r/dphi
+#   flx      = -rho*nu*(strain - (2/3) div v)           i.e. the flux is MINUS the stress
+#
+# so the divergence carries -tau, which is why every stress term below is subtracted.
+#
+# WHAT THIS TESTS that nothing else here does: the operator itself. Every other study
+# compares against a solution the physics happens to admit, so it can only exercise the
+# configurations that solution reaches. A manufactured solution is chosen to be awkward
+# on purpose -- varying in BOTH r and phi, with all four conserved variables non-trivial
+# -- and the source term is derived so that it is exact anyway.
+#
+# The solution is STEADY. u_m is then an exact steady state of the modified equations, so
+# starting the run from u_m it should stay there, and whatever separates it from u_m after
+# N steps is the discretisation error and nothing else. That also removes any need for
+# time-dependent boundary values.
+#
+# Operators are written in the conserved form Athena++ actually advances, in cylindrical
+# (r, phi) with r = x and phi = y. Note the geometric term in the r-momentum equation:
+# Athena++ applies +(rho v_phi^2 + p)/r internally as a source, so the manufactured
+# source must carry the opposite sign for the two to cancel at u_m.
+#
+# A wrong operator is not silent here. If what is declared below differs from what the
+# solver advances, u_m is no longer an exact solution of the modified equations, the
+# numerical solution converges to something else, and the measured order collapses toward
+# zero. That is the study reporting a mismatch, not hiding one.
+version: 1
+name: m5_mms_viscous_2d
+
+solver:
+  type: athena++
+  template: athinput.mms_viscous.template
+  timeout_s: 21600.0
+  plugin_args:
+    executable: /home/etrevol/athena-vvkit/bin/athena_mms
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out1"
+    fields:
+      rho: rho
+      press: press
+      vel1: vel1
+      vel2: vel2
+
+mms:
+  operator:
+    dens: "(1/x)*Derivative(x*rho(x,y)*vel1(x,y), x) + (1/x)*Derivative(rho(x,y)*vel2(x,y), y)"
+    mom1: "(1/x)*Derivative(x*(rho(x,y)*vel1(x,y)**2 + press(x,y) - (nu0*rho(x,y)*(2*Derivative(vel1(x,y), x) - (2/3)*((1/x)*Derivative(x*vel1(x,y), x) + (1/x)*Derivative(vel2(x,y), y))))), x) + (1/x)*Derivative(rho(x,y)*vel1(x,y)*vel2(x,y) - (nu0*rho(x,y)*(x*Derivative(vel2(x,y)/x, x) + (1/x)*Derivative(vel1(x,y), y))), y) - (rho(x,y)*vel2(x,y)**2 + press(x,y) - (nu0*rho(x,y)*(2*((1/x)*Derivative(vel2(x,y), y) + vel1(x,y)/x) - (2/3)*((1/x)*Derivative(x*vel1(x,y), x) + (1/x)*Derivative(vel2(x,y), y)))))/x"
+    mom2: "(1/x**2)*Derivative(x**2*(rho(x,y)*vel1(x,y)*vel2(x,y) - (nu0*rho(x,y)*(x*Derivative(vel2(x,y)/x, x) + (1/x)*Derivative(vel1(x,y), y)))), x) + (1/x)*Derivative(rho(x,y)*vel2(x,y)**2 + press(x,y) - (nu0*rho(x,y)*(2*((1/x)*Derivative(vel2(x,y), y) + vel1(x,y)/x) - (2/3)*((1/x)*Derivative(x*vel1(x,y), x) + (1/x)*Derivative(vel2(x,y), y)))), y)"
+    etot: "(1/x)*Derivative(x*(((press(x,y)/(g - 1) + rho(x,y)*(vel1(x,y)**2 + vel2(x,y)**2)/2) + press(x,y))*vel1(x,y) - vel1(x,y)*(nu0*rho(x,y)*(2*Derivative(vel1(x,y), x) - (2/3)*((1/x)*Derivative(x*vel1(x,y), x) + (1/x)*Derivative(vel2(x,y), y)))) - vel2(x,y)*(nu0*rho(x,y)*(x*Derivative(vel2(x,y)/x, x) + (1/x)*Derivative(vel1(x,y), y)))), x) + (1/x)*Derivative(((press(x,y)/(g - 1) + rho(x,y)*(vel1(x,y)**2 + vel2(x,y)**2)/2) + press(x,y))*vel2(x,y) - vel1(x,y)*(nu0*rho(x,y)*(x*Derivative(vel2(x,y)/x, x) + (1/x)*Derivative(vel1(x,y), y))) - vel2(x,y)*(nu0*rho(x,y)*(2*((1/x)*Derivative(vel2(x,y), y) + vel1(x,y)/x) - (2/3)*((1/x)*Derivative(x*vel1(x,y), x) + (1/x)*Derivative(vel2(x,y), y)))), y)"
+  # Smooth, strictly positive, 2pi-periodic in phi, and non-trivial in every variable so
+  # that no term of the operator can vanish and go untested.
+  solution:
+    rho: "2.0 + 0.5*sin(x)*cos(y)"
+    press: "3.0 + 0.4*cos(x)*cos(y)"
+    vel1: "0.2*cos(x)*sin(y)"
+    vel2: "1.0 + 0.3*sin(x)*sin(y)"
+
+  symbols:
+    g: 1.6666666666666667
+    nu0: 0.05
+
+  domain:
+    x: [1.0, 3.0]
+    y: [0.0, 6.283185307179586]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [32, 64, 128, 256]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2]
+  exclude_boundary_cells: 0
+  expected_order: 2.0
+  # Two-sided, and all four variables come out ABOVE 2 on this ladder (2.20 to 2.47).
+  # The scheme is second order; at these resolutions the measured slope is steeper than
+  # its asymptotic value, which a tolerance of 0.3 would report as a failure for being
+  # too good.
+  order_tolerance: 0.6
+
+report:
+  formats: [html, json]
+  output_dir: reports/
