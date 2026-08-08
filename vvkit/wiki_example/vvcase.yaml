@@ -5,7 +5,7 @@ solver:
   type: athena++
   template: athinput.scalar_diff.template
   plugin_args:
-    athena_source: "/home/etrevol/athena-vvkit"
+    athena_source: "/home/etrevol/athena-collab"
     configure_args: ["--prob=scalar_diff", "--coord=cylindrical", "--nscalars=1"]
     use_wsl: true
     wsl_distro: Ubuntu

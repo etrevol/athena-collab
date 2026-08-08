@@ -24,8 +24,16 @@ cell_average`, `quadrature_order: 5`, ladder `nx1 ∈ {64, 128, 256, 512}` unles
 | **M3** | `nu_applied` | α-law | **1.812** (R²=0.999) | 1.097 | *does not converge* | fails |
 | **M4** | `T_rphi` | analytic shear stress | **2.018** (R²=1.0000) | 2.017 | 1.899 | **PASSES** |
 | **A1** | ring `rho` at τ=0.1 | Lynden-Bell & Pringle Σ(x,τ) | 0.490 | 0.445 | 0.501 | fails — see §5 |
+| **M5** | 4 conserved vars | manufactured, inviscid Euler | 2.20–2.47 | 2.21–2.41 | — | **PASSES** |
+| **M5b** | 4 conserved vars | manufactured, Navier–Stokes | 2.17–2.51 | 2.23–2.44 | — | **PASSES** |
+| **M6** | `disk_mass` budget | `mdot_in − mdot_out` | imbalance 7.3e-6 at 256² | | | **PASSES** |
 
-M2b and A1 used `nx1 ∈ {64, 128, 256}`.
+M2b and A1 used `nx1 ∈ {64, 128, 256}`; M5 and M5b used `{32, 64, 128, 256}`.
+
+**Three of the nine pass.** That is the honest headline, and the three that pass are the
+ones that matter most: the viscous stress (M4), the operators themselves under a
+manufactured solution (M5, M5b), and the mass budget (M6). The six that fail do so at the
+torus surface, and §3 says by how much.
 
 ---
 

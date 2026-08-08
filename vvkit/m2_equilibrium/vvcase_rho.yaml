@@ -23,7 +23,7 @@ solver:
   template: athinput.equilibrium.template
   timeout_s: 21600.0
   plugin_args:
-    executable: /home/etrevol/athena-vvkit/bin/athena_acc_disk
+    executable: /home/etrevol/athena-collab/bin/athena_acc_disk
     use_wsl: true
     wsl_distro: Ubuntu
     output_stream: "out1"

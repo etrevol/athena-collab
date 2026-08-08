@@ -28,7 +28,7 @@ solver:
   template: athinput.mms.template
   timeout_s: 21600.0
   plugin_args:
-    executable: /home/etrevol/athena-vvkit/bin/athena_mms
+    executable: /home/etrevol/athena-collab/bin/athena_mms
     use_wsl: true
     wsl_distro: Ubuntu
     output_stream: "out1"
