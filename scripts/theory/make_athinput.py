@@ -50,12 +50,7 @@ data_format = %24.16e    # output format specifier
 file_type  = hst         # output format
 dt         = {dt_out:<12.6g}# time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
-data_format = %24.16e    # output format specifier
-# All three outputs carry data_format. Athena++ defaults to %12.5e, i.e. 6 significant
-# digits: enough to look at, not enough to subtract. At that precision the difference
-# between a run and its own restart, or between two MeshBlock decompositions, is
-# quantisation rather than physics, and a grid-convergence error smaller than 1e-6 of the
-# field cannot be measured at all.
+data_format = %24.16e    # output precision; the %12.5e default cannot be differenced
 
 <time>
 cfl_number = {cfl:<12}# Courant, Friedrichs & Lewy number
@@ -142,8 +137,7 @@ THEORY_BLOCK = """
 #   T_mid, ideal-gas reading : {T_mid:.6e} K
 #   p_rad/p_gas at that T    : {p_rad_over_gas:.3e}
 #   T_mid, radiation reading : {T_mid_rad:.6e} K   (the self-consistent one)
-#   T_0 and mu cancel from every physical result; they set the code velocity unit only.
-#   Fixed by chi, C', gamma and r_center alone.
+#   Fixed by chi, C', gamma and r_center alone; T_0 and mu set the velocity unit only.
 #
 # Viscosity (alpha = {alpha:g})
 #   nu_iso                   : {nu_iso:.6e}
