@@ -51,6 +51,9 @@ class Case:
     #: binary, so the Lynden-Bell & Pringle ring needs its own; see build_ring.sh.
     binary: str = "athena"
     athinput: str = "athinput.acc_disk_visc_vv"
+    #: command prefix, e.g. ("mpirun", "-n", "4"). Part of the cached argv, so changing
+    #: the rank count invalidates the cached run rather than reusing it silently.
+    launcher: tuple = ()
     #: wall-clock ceiling. A collapsed timestep does not crash - it burns CPU forever
     #: while model time stands still, and .hst stops growing so nothing looks wrong.
     #: Without this the suite hangs instead of reporting the collapse, which is the
@@ -61,7 +64,7 @@ class Case:
         return self.timeout if self.timeout else max(180.0, 5.0 * self.est)
 
     def argv(self):
-        return [f"{k}={v}" for k, v in sorted(self.overrides.items())]
+        return [*self.launcher, *(f"{k}={v}" for k, v in sorted(self.overrides.items()))]
 
 
 class Suite:
@@ -150,22 +153,27 @@ class Suite:
         local_input = cdir / "athinput.in"
         local_input.write_text(template.read_text() + case.extra_input)
 
+        # Athena++ compiles one problem generator, and one MPI setting, into the binary,
+        # so some cases need one of their own. Say which script builds the missing one
+        # rather than leaving a traceback.
         binary = self.repo / "bin" / case.binary
         if not binary.exists():
+            builder = {"athena_visc_ring": "./scripts/vv/build_ring.sh",
+                       "athena_mpi": "./scripts/vv/build_mpi.sh"}.get(case.binary)
             (cdir / "run.log").write_text(
-                f"{binary} not found.\nThe Lynden-Bell & Pringle ring needs its own "
-                f"binary, because Athena++ compiles one problem generator at a time.\n"
-                f"Build it once with:  ./scripts/vv/build_ring.sh\n")
+                f"{binary} not found.\n"
+                + (f"Build it once with:  {builder}\n" if builder else ""))
             return {"cid": case.cid, "status": "failed", "returncode": -2,
                     "seconds": 0.0, "argv": case.argv(), "tags": list(case.tags)}
 
         limit = case.wall_limit()
-        argv = [str(binary), "-i", "athinput.in", *case.argv()]
+        overrides = [f"{k}={v}" for k, v in sorted(case.overrides.items())]
+        argv = [*case.launcher, str(binary), "-i", "athinput.in", *overrides]
         t0 = time.time()
         rc, timed_out = self._invoke(argv, cdir, limit, "w")
         lines = [" ".join(argv)]
         if rc == 0 and case.post_argv:
-            argv2 = [str(binary), *case.post_argv]
+            argv2 = [*case.launcher, str(binary), *case.post_argv]
             lines.append(" ".join(argv2))
             rc, timed_out = self._invoke(argv2, cdir, limit, "a",
                                          banner="\n=== second invocation ===\n")

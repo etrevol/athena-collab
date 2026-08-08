@@ -508,6 +508,24 @@ def invariance_checks(suite, model):
     else:
         out.append(Check("invariance", "restart", WARN,
                          "restart case produced no comparable frame"))
+
+    # MPI. Same mesh, same decomposition, same binary; the only difference is whether a
+    # ghost zone crosses a process boundary. Nothing in that path is allowed to touch a
+    # value, so unlike the 1-vs-4-block test this one is held to bitwise equality.
+    a = suite.case_dir_path("mpi_1rank")
+    b = suite.case_dir_path("mpi_4rank")
+    if analysis.frame_indices(a) and analysis.frame_indices(b):
+        d = analysis.field_difference(a, b)
+        out.append(Check("invariance", "mpi",
+                         OK if d == 0.0 else (WARN if d < 1e-12 else FAIL),
+                         f"4 MeshBlocks on 1 rank vs on 4 ranks: max|d rho| = {d:.3e} "
+                         f"after 1 orbit. The exchange moves the same doubles either "
+                         f"way, so this is bitwise or it is a defect",
+                         d, "= 0"))
+    else:
+        out.append(Check("invariance", "mpi", INFO,
+                         "MPI cases did not run; build the binary with "
+                         "./scripts/vv/build_mpi.sh to include them"))
     return out, data
 
 
@@ -529,6 +547,7 @@ def sensitivity_checks(suite, model, gci_band):
 
     variants = [("sens_rhoatm_0.001", "rho_atm = 1e-3"),
                 ("sens_rhoatm_1e-05", "rho_atm = 1e-5"),
+                ("sens_rhoatm_1e-06", "rho_atm = 1e-6"),
                 ("sens_dfloor_1e-10", "dfloor = 1e-10"),
                 ("sens_dfloor_1e-14", "dfloor = 1e-14"),
                 ("sens_x1min_0.3", "x1min = 0.30"),
@@ -549,6 +568,36 @@ def sensitivity_checks(suite, model, gci_band):
                          f"from the baseline {base:+.3e}; floors hit {floors:.0f}",
                          shift, f"<= {tol:.1e} (2x the grid band)"))
     data["sens_rows"] = rows
+
+    # The ambient medium is a numerical device, so the answer has to stop depending on it
+    # as it is made thinner. One variant can only show that the answer moved; the ladder
+    # shows whether the movement dies out, which is the statement that licenses the
+    # baseline value. Successive differences, not distances from the baseline: a plateau
+    # is about the slope going to zero.
+    ladder = [("1e-3", "sens_rhoatm_0.001"), ("1e-4", None),
+              ("1e-5", "sens_rhoatm_1e-05"), ("1e-6", "sens_rhoatm_1e-06")]
+    drifts = []
+    for label, cid in ladder:
+        h = analysis.hst(base_dir if cid is None else suite.case_dir_path(cid))
+        drifts.append(np.nan if h is None else analysis.relative_drift(h, "disk_mass"))
+    steps = [abs(drifts[i + 1] - drifts[i]) for i in range(len(drifts) - 1)]
+    data["sens_rhoatm_ladder"] = list(zip([l for l, _ in ladder], drifts))
+    if all(np.isfinite(s) for s in steps):
+        first, last = steps[0], steps[-1]
+        decaying = last < first
+        out.append(Check("sensitivity", "rhoatm_plateau",
+                         OK if (decaying and last <= tol) else
+                         (WARN if decaying else FAIL),
+                         "dm/m0 over rho_atm = " +
+                         ", ".join(f"{l}: {d:+.2e}" for (l, _), d in zip(ladder, drifts))
+                         + f"; the step per decade falls {first:.2e} -> {last:.2e}, so "
+                         f"the last decade moves the answer by "
+                         f"{last / first if first else np.nan:.2f} of what the first one "
+                         f"did", last, f"<= {tol:.1e} and falling"))
+    else:
+        out.append(Check("sensitivity", "rhoatm_plateau", WARN,
+                         "the rho_atm ladder is incomplete; cannot say whether the "
+                         "dependence plateaus"))
     return out, data
 
 

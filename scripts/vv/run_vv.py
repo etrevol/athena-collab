@@ -43,6 +43,9 @@ def main(argv=None):
     ap.add_argument("--jobs", type=int, default=None, help="parallel runs")
     ap.add_argument("--reuse", default=None, help="an existing results/tests/... dir")
     ap.add_argument("--no-run", action="store_true", help="analyse only, run nothing")
+    ap.add_argument("--tex", default=None,
+                    help="also write the LaTeX result tables here, e.g. "
+                         "docs/astroformular/sections/vv_tables.tex")
     a = ap.parse_args(argv)
 
     t0 = time.time()
@@ -108,6 +111,7 @@ def main(argv=None):
     figs = report.make_figures(suite, model, data)
     elapsed = time.time() - t0
     counts = report.write_report(suite, model, results, records, figs, elapsed, prov)
+    report.write_tex(suite, model, results, data, path=a.tex)
 
     width = max((len(c.name) for c in results), default=10)
     group = None
