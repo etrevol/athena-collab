@@ -201,16 +201,76 @@ against 1.0725 from linear theory (0.7% apart), m = 2 at 0.9830 against 0.9710, 
 0.7466 against 0.7656. Splitting the instrumented generator out as `acc_disk_visc_vv.cpp`
 changed nothing physical.
 
-## 9. What was not done
+## 9. Manufactured solution: the operators are second order
+
+M5 is the first manufactured solution in this project. The solution is chosen to be
+awkward -- varying in both r and phi, every conserved variable non-trivial -- and the
+source term derived so that it is exact anyway. Because it is steady, `u_m` is an exact
+steady state of the modified equations, so whatever separates the run from it is
+discretisation error and nothing else.
+
+| variable | L1 | L2 | R2 |
+|---|---|---|---|
+| `rho` | 2.466 | 2.409 | 0.9999 |
+| `press` | 2.215 | 2.266 | 1.0000 |
+| `vel1` | 2.197 | 2.211 | 0.9995 |
+| `vel2` | 2.373 | 2.339 | 0.9999 |
+
+Four variables at second order at once, on a 32-256 ladder. The orders sit above 2 rather
+than at it, which is the pre-asymptotic slope of a second-order scheme at these
+resolutions.
+
+**Why this is evidence and not just a number.** If the operators declared in the study
+differed from what Athena++ advances, `u_m` would stop being a solution of the modified
+system, the run would converge to something else, and the order would collapse toward
+zero. Getting 2.2-2.5 in four variables simultaneously means the whole chain lines up:
+the declared operators, the generated source, the geometric source Athena++ applies
+internally, the exact boundary values, and the reconstruction. This verifies the
+production hydro path in cylindrical geometry, which nothing here did before.
+
+An earlier note in this file argued that a wrong operator would fail *silently*. That was
+wrong, and the correction matters because it changes whether MMS is worth attempting when
+you are unsure of the operator: it is, because a mismatch is loud.
+
+**Not covered:** the viscous operator. Athena++ builds the cylindrical strain terms in
+`FaceXdx` and the coordinate metric, and reproducing them exactly is a separate piece of
+work.
+
+## 10. The mass budget closes, and the diagnostic nearly lied about it
+
+M6 checks `d(disk_mass)/dt` against `mdot_in - mdot_out` -- the check a snapshot cannot
+do, since falling disk mass alone cannot be told from accretion, an outer-boundary leak,
+or the floors.
+
+| grid | imbalance, relative to the initial mass |
+|---|---|
+| 64 | +3.84e-5 |
+| 128 | +3.56e-5 |
+| 256 | **+7.32e-6** |
+
+It closes everywhere and improves with refinement.
+
+Getting there produced a finding about the *diagnostic*. At the ten history writes per
+orbit the input file used, the budget FAILED at 256 with an imbalance of -1.85e-4 while
+passing at 64 and 128 -- worse on the finer grid, which is not physical. Sampling a
+hundred times per orbit closes it everywhere. The failure was aliasing: the boundary flux
+varies faster as the grid refines while the history cadence stayed fixed.
+
+**The history sampling rate has to be refined along with the mesh**, or the budget
+measures the output cadence rather than the solver. vvkit now says so when halving the
+sampling rate moves the flux integral by more than the tolerance.
+
+A second measurement artefact, worth recording because it invalidated numbers before it
+was found: Athena++ opens its history file in append mode, so re-running a study into an
+existing directory produced a `.hst` whose time column restarted partway down. The same
+case reported -1.9e-5 on its first run and -7.5e-5 on a rerun of exactly the same
+configuration.
+
+## 11. What was not done
 
 Stated plainly rather than left to inference:
 
-- **M5 (2D MMS on the production operators)** — not run. The vvkit defect that blocked it
-  is fixed (`vv mms` now emits compiling multi-variable code, verified on three cases),
-  and per-field norms are in place, but the new `src/pgen/acc_disk_mms.cpp` with exact
-  boundary conditions from `u_m(x, y, t)` was not written.
-- **M6 (mass budget from `.hst`)** — not run. Requires a `.hst` reader in the adapter and
-  the conservation path reconnected to the report; neither was done.
+- **The viscous operator under MMS** — M5 covers the inviscid Euler operators only.
 - **Temporal convergence** — not attempted.
 
 A1 *was* run (see §5) but does not yield an order for this configuration; a wider domain
