@@ -232,9 +232,29 @@ An earlier note in this file argued that a wrong operator would fail *silently*.
 wrong, and the correction matters because it changes whether MMS is worth attempting when
 you are unsure of the operator: it is, because a mismatch is loud.
 
-**Not covered:** the viscous operator. Athena++ builds the cylindrical strain terms in
-`FaceXdx` and the coordinate metric, and reproducing them exactly is a separate piece of
-work.
+### The viscous operator too
+
+M5b repeats the study with the full Newtonian stress, `nu_iso = 0.05`. The strain terms
+were transcribed from what Athena++ computes rather than from memory --
+`FaceXdx = 2 dv_r/dr`, `FaceXdy = r d(v_phi/r)/dr + (1/r) dv_r/dphi`, and the flux is
+MINUS the stress -- and the geometric term in the r-momentum equation carries `-tau_phiphi/r`
+to match.
+
+| variable | L1 | L2 | R2 |
+|---|---|---|---|
+| `rho` | 2.510 | 2.434 | 0.9999 |
+| `press` | 2.170 | 2.234 | 0.9996 |
+| `vel1` | 2.223 | 2.245 | 0.9991 |
+| `vel2` | 2.466 | 2.444 | 0.9997 |
+
+**PASSED.** So the viscous operator this whole project rests on is second order, and the
+Newtonian stress written above is the one Athena++ actually applies -- had it not been,
+`u_m` would have stopped being a solution of the modified system and the order would have
+collapsed toward zero.
+
+Cost note: 1658 s for the 256 case against 111 s at 128, because the viscous timestep
+falls as `dx^2/nu` while the hyperbolic one falls as `dx`. A viscous MMS ladder is
+roughly fifteen times the cost of the inviscid one per level.
 
 ## 10. The mass budget closes, and the diagnostic nearly lied about it
 
@@ -270,7 +290,6 @@ configuration.
 
 Stated plainly rather than left to inference:
 
-- **The viscous operator under MMS** — M5 covers the inviscid Euler operators only.
 - **Temporal convergence** — not attempted.
 
 A1 *was* run (see §5) but does not yield an order for this configuration; a wider domain
