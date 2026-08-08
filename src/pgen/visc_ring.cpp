@@ -1,31 +1,18 @@
 //========================================================================================
-// Lynden-Bell & Pringle (1974) viscously spreading ring. Cylindrical (r, phi), 2D.
-//
-// A narrow ring of gas on Keplerian orbits, with a constant kinematic viscosity, spreads
-// according to an exact analytic solution. That makes it the reference test for the
-// viscous operator - and, run with nu = 0, the way to MEASURE the scheme's own numerical
-// viscosity instead of merely bounding it: whatever spreading survives is the scheme's.
-//
-//     Sigma(x, tau) = M/(pi R0^2) * (1/(tau x^{1/4})) * I_{1/4}(2x/tau)
-//     x = R/R0,   tau = 12 nu t / R0^2
-//
-// Two numerical points matter for getting this right in double precision:
-//
-//   * I_{1/4}(2x/tau) overflows and exp(-(1+x^2)/tau) underflows for the small tau this
-//     test starts from (tau0 ~ 0.02 gives an argument near 100). Using the exponentially
-//     scaled Bessel function and combining the exponents removes both, because
-//     -(1+x^2) + 2x = -(1-x)^2:
-//
-//         Sigma = M/(pi R0^2) * (1/(tau x^{1/4})) * Itilde_{1/4}(2x/tau)
-//
-//   * gamma is taken near 1 on purpose. The solution assumes a pressureless disk, and
-//     viscous heating over one spreading time would otherwise raise the temperature by a
-//     factor of a few, thickening the disk and changing the very thing being measured.
-//     With gamma -> 1 the gas holds its temperature and the run stays thin.
-//
-// Gravity and viscosity are Athena++'s own: <problem>/GM drives HydroSourceTerms::
-// PointMass, and <problem>/nu_iso with no enrolled coefficient gives ConstViscosity.
-// Nothing here reimplements either, so this test checks the solver rather than a copy.
+//! \file visc_ring.cpp
+//! \brief Viscously spreading ring (Lynden-Bell & Pringle 1974). Cylindrical (r, phi), 2D.
+//!
+//! A narrow ring of gas on Keplerian orbits with a constant kinematic viscosity spreads
+//! according to an exact analytic solution, which makes it the reference test for the
+//! viscous operator. Run with nu_iso = 0 it instead measures the scheme's own numerical
+//! viscosity, since any spreading that survives is the scheme's.
+//!
+//! Gravity and viscosity are Athena++'s own: <problem>/GM drives
+//! HydroSourceTerms::PointMass, and <problem>/nu_iso with no enrolled coefficient gives
+//! ConstViscosity. Nothing here reimplements either.
+//!
+//! <hydro>/gamma is taken near 1 on purpose. The solution assumes a pressureless disk,
+//! and viscous heating would otherwise thicken the disk over one spreading time.
 //========================================================================================
 
 // C++ headers
@@ -68,8 +55,8 @@ void OuterX1KeplerBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 
 //----------------------------------------------------------------------------------------
 //! \brief Exponentially scaled modified Bessel function exp(-z) I_{1/4}(z), z > 0.
-//!        Series below z = 15, asymptotic expansion above; the two agree to ~1e-10 at
-//!        the join. C++17 has std::cyl_bessel_i, this code is built as C++11.
+//!        Ascending series below z = 15, asymptotic expansion above; the two agree to
+//!        ~1e-10 at the join. std::cyl_bessel_i is C++17, this code is built as C++11.
 Real BesselI14Scaled(Real z) {
   const Real nu = 0.25;
   if (z <= 0.0) return 0.0;
@@ -84,8 +71,7 @@ Real BesselI14Scaled(Real z) {
     }
     return sum * std::exp(-z);
   }
-  // Itilde_nu(z) ~ 1/sqrt(2 pi z) * sum_k (-1)^k a_k(nu) / z^k,
-  //   a_k = (mu - 1^2)(mu - 3^2)...(mu - (2k-1)^2) / (k! 8^k),   mu = 4 nu^2
+  // Asymptotic expansion, Abramowitz & Stegun 9.7.1
   const Real mu = 4.0 * nu * nu;
   Real t = 1.0, sum = 1.0;
   for (int k = 1; k <= 6; ++k) {
@@ -97,7 +83,8 @@ Real BesselI14Scaled(Real z) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Analytic surface density of the spreading ring, in the numerically safe form.
+//! \brief Analytic surface density of the spreading ring. The scaled Bessel function and
+//!        the combined exponent keep this finite at the small tau the run starts from.
 Real RingSigma(Real r, Real tau) {
   Real x = r / r_ring;
   if (x <= 0.0) return 0.0;
@@ -108,10 +95,8 @@ Real RingSigma(Real r, Real tau) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Radial drift of the analytic solution,
-//!        v_r = -3/(Sigma sqrt(r)) d/dr(nu Sigma sqrt(r)).
-//!        Zero when nu is zero, which is what the numerical-viscosity run needs: there
-//!        is no physical drift to impose, and any that appears is the scheme's.
+//! \brief Radial drift of the analytic solution. Zero when nu is zero, which is what the
+//!        numerical-viscosity run needs: no physical drift is imposed there.
 Real RingVr(Real r, Real tau) {
   if (nu_visc <= 0.0) return 0.0;
   Real sig = RingSigma(r, tau) + sigma_bg;
@@ -123,10 +108,9 @@ Real RingVr(Real r, Real tau) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Rotation from exact radial balance, so the run starts in equilibrium apart from
-//!        the viscous drift. The analytic solution ignores pressure; keeping it here and
-//!        letting v_phi absorb it removes an O(h^2) startup transient that would
-//!        otherwise be indistinguishable from the spreading being measured.
+//! \brief Rotation from exact radial balance, so the run starts in equilibrium apart
+//!        from the viscous drift. The analytic solution ignores pressure; letting v_phi
+//!        absorb it removes a startup transient of the same size as the spreading.
 Real RingVphi(Real r, Real tau) {
   Real d = 1.0e-4 * r_ring;
   auto press = [tau](Real rr) {
@@ -150,9 +134,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   nu_visc   = pin->GetOrAddReal("problem", "nu_iso", 0.0);
   gamma_gas = pin->GetReal("hydro", "gamma");
 
-  // Fix M so that the analytic peak at x = 1 equals sigma_peak. Doing it from the
-  // analytic value rather than from the grid keeps the normalisation resolution
-  // independent, which a convergence study needs.
+  // Fix M so the analytic peak at x = 1 equals sigma_peak. Taken from the analytic
+  // value rather than from the grid, so the normalisation is resolution independent.
   mass_norm = 1.0;
   Real peak = RingSigma(r_ring, tau_init);
   if (peak <= 0.0) {
@@ -166,7 +149,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   if (Globals::my_rank == 0) {
     std::streamsize saved = std::cout.precision();
     std::cout.precision(12);
-    Real width = std::sqrt(tau_init) * r_ring;       // ~ e-folding half-width of the ring
+    Real width = std::sqrt(tau_init) * r_ring;       // e-folding half-width of the ring
     std::cout << std::endl
               << "=========================================================" << std::endl
               << "  Lynden-Bell & Pringle viscously spreading ring" << std::endl
@@ -225,9 +208,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
 //----------------------------------------------------------------------------------------
 //! \brief Radial boundaries: zero-gradient in rho and p, diode in v_r, and v_phi scaled
-//!        as r^(-1/2) so the ghost zones stay Keplerian. Copying v_phi instead would
-//!        leave them under-rotating and drive a spurious inflow - small, but this test
-//!        measures a small effect.
+//!        as r^(-1/2) so the ghost zones stay Keplerian. Copying v_phi would leave them
+//!        under-rotating and drive a spurious inflow.
 void InnerX1KeplerBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                      FaceField &b, Real time, Real dt,
                      int il, int iu, int jl, int ju, int kl, int ku, int ngh) {

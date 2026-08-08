@@ -1,13 +1,12 @@
 //========================================================================================
-// Papaloizou-Pringle torus with alpha viscosity. Cylindrical (r, phi), 2D.
-//
-// A constant-angular-momentum torus superposed on a centrifugally balanced ambient
-// medium; v_phi follows from exact radial force balance, so the surface is continuous.
-//
-// The torus is linearly unstable to non-axisymmetric modes (Papaloizou & Pringle 1984),
-// so an axisymmetric run only stays smooth because nothing seeds them. <problem>/pert_amp
-// seeds them on purpose, which turns "the disk survived N orbits" into a two-sided,
-// checkable statement: quiet without a seed, growing at the predicted rate with one.
+//! \file acc_disk_visc_vv.cpp
+//! \brief Papaloizou-Pringle torus with alpha viscosity. Cylindrical (r, phi), 2D.
+//!
+//! A constant-angular-momentum torus on a centrifugally balanced ambient medium; v_phi
+//! follows from exact radial force balance, so the surface is continuous.
+//!
+//! Instrumented variant of acc_disk_visc.cpp: 11 history columns, 7 user output
+//! variables, and an optional seed for the non-axisymmetric modes of PP84.
 //========================================================================================
 
 // C++ headers
@@ -67,7 +66,7 @@ namespace {
   Real p_atm;        // Ambient pressure
   Real visc_rho_cut; // Density below which alpha-viscosity is smoothly switched off
 
-  // Seed perturbation (off by default; see the file header)
+  // Seed perturbation for the non-axisymmetric modes (off by default)
   Real pert_amp;              // amplitude of delta v_r, in units of the local c_s
   int  pert_m;                // azimuthal mode (single), or highest mode (multi)
   int  pert_kind;             // 0 = single mode, 1 = sum of modes, 2 = white noise
@@ -154,10 +153,9 @@ Real EquilibriumVphi2(Real r) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Deterministic hash of two integers to a uniform deviate in [-1, 1).
-//!        Used instead of a sequential PRNG so the perturbation field depends only on the
-//!        GLOBAL cell index: the same physical seed is laid down however the mesh is cut
-//!        into MeshBlocks, keeping the block-decomposition invariance test meaningful.
+//! \brief Uniform deviate in [-1, 1) from two integers. Keyed on the global cell index
+//!        rather than drawn in sequence, so the seed field is independent of how the
+//!        mesh is cut into MeshBlocks.
 Real HashDeviate(std::int64_t a, std::int64_t b) {
   std::uint64_t x = static_cast<std::uint64_t>(a) * 0x9E3779B97F4A7C15ULL;
   x ^= static_cast<std::uint64_t>(b) * 0xC2B2AE3D27D4EB4FULL;
@@ -165,14 +163,12 @@ Real HashDeviate(std::int64_t a, std::int64_t b) {
   x ^= x >> 30;  x *= 0xBF58476D1CE4E5B9ULL;
   x ^= x >> 27;  x *= 0x94D049BB133111EBULL;
   x ^= x >> 31;
-  // 2^53 distinct values, mapped to [-1, 1)
   return 2.0 * (static_cast<Real>(x >> 11) / 9007199254740992.0) - 1.0;
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Radial envelope of the seed perturbation: 1 at the density maximum, 0 on both
-//!        torus surfaces, identically 0 outside. Keeps the seed out of the ambient medium
-//!        and off the surfaces, where the state is delicate and the modes are not.
+//! \brief Radial envelope of the seed: 1 at the density maximum, 0 on both torus
+//!        surfaces and outside, so the ambient medium is left untouched.
 Real PerturbationEnvelope(Real r) {
   Real f = DiskFunction(r);
   if (f <= 0.0) return 0.0;
@@ -182,7 +178,6 @@ Real PerturbationEnvelope(Real r) {
 
 //----------------------------------------------------------------------------------------
 //! \brief Azimuthal shape of the seed, normalised to unit RMS over phi.
-//!        gi/gj are GLOBAL cell indices, so the field is decomposition independent.
 Real PerturbationShape(Real phi, std::int64_t gi, std::int64_t gj) {
   if (pert_kind == 2) {                       // white noise
     return HashDeviate(gi, gj);
@@ -329,18 +324,15 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
               << "      condition ill-posed and drains the disk." << std::endl << std::endl;
   }
 
-  // Mid-plane thermodynamic state. The torus normalises p/rho to the local gravity, so
-  // cs0 cancels and this depends on chi, C', gamma and r_center alone -- T_0 and mu do
-  // not enter. Printed so the CGS mapping can be checked against scripts/theory.
+  // Mid-plane state. cs0 cancels here, so this is fixed by chi, C', gamma and r_center
+  // alone; T_0 and mu do not enter.
   Real pr_mid = beta_param * f_center / (r_center * (n_poly + 1.0));  // (p/rho), code
   Real T_mid  = pr_mid * cs0_sq * mu_gas * M_P / K_B;                 // ideal-gas reading
   Real p_mid  = rho_0 * pr_mid * cs0_sq;                              // erg/cm^3
   Real p_rad_over_gas = A_RAD * std::pow(T_mid, 4.0) / (3.0 * p_mid);
 
-  // Output model parameters to console. Printed at full precision, and restored
-  // afterwards, so that scripts/vv can check this banner against scripts/theory to 1e-12
-  // instead of to the 6 significant digits std::cout gives by default. Nothing else
-  // checks that the C++ and the Python copies of these formulas still agree.
+  // Model parameters at full precision, so scripts/vv can check them against
+  // scripts/theory; the stream precision is restored afterwards.
   if (Globals::my_rank == 0) {
     std::streamsize saved_precision = std::cout.precision();
     std::cout << std::setprecision(12);
@@ -417,9 +409,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   EnrollUserBoundaryFunction(BoundaryFace::inner_x1, InnerX1OutflowBC);
   EnrollUserBoundaryFunction(BoundaryFace::outer_x1, OuterX1OutflowBC);
 
-  // Enroll user history output functions. Mass and momentum budgets need the boundary
-  // fluxes as well as the volume integrals, otherwise a change in disk_mass cannot be
-  // attributed to accretion, to a leak at the outer boundary, or to the floors.
+  // History columns. The boundary fluxes go alongside the volume integrals so a change
+  // in disk_mass can be attributed to accretion, to an outer leak or to the floors.
   AllocateUserHistoryOutput(11);
   EnrollUserHistoryOutput(0, TotalDiskMass, "disk_mass", UserHistoryOperation::sum);
   EnrollUserHistoryOutput(1, DiskAngularMomentum, "disk_L", UserHistoryOperation::sum);
@@ -482,8 +473,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Point-mass gravity, using the same geometric factor as Athena++'s cylindrical
-//!        source term so that a balanced ambient medium is an exact discrete equilibrium.
+//! \brief Point-mass gravity. Uses the same geometric factor as Athena++'s cylindrical
+//!        source term, so a balanced ambient medium is an exact discrete equilibrium.
 //!        Energy follows the numerical mass flux, not the cell-centred rho*v_r.
 void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
                  const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
@@ -533,8 +524,8 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
 }
 
 //----------------------------------------------------------------------------------------
-//! \brief Alpha viscosity nu = alpha*(gamma/sqrt(beta))*(p/rho)*r^(3/2), tapered to zero
-//!        in the ambient medium to avoid an artificial torque at the boundaries.
+//! \brief Shakura-Sunyaev alpha viscosity, tapered to zero in the ambient medium so the
+//!        radial boundaries feel no artificial torque.
 void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
                    const AthenaArray<Real> &prim, const AthenaArray<Real> &bcc,
                    int is, int ie, int js, int je, int ks, int ke) {
@@ -552,7 +543,6 @@ void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
         // Smooth density weight: ~1 in the disk body, ~0 in the ambient medium.
         Real w = (cut2 > 0.0) ? (rho*rho / (rho*rho + cut2)) : 1.0;
 
-        // nu = alpha * (gamma/sqrt(beta)) * (p/rho) * r^(3/2)
         Real nu_func = coeff * (press / rho) * std::pow(r, 1.5) * w;
 
         phdif->nu(HydroDiffusion::DiffProcess::iso, k, j, i) = nu_func;
@@ -563,8 +553,7 @@ void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
 }
 
 //----------------------------------------------------------------------------------------
-//! Mass of the disk body only [M_sun]. The uniform ambient medium is subtracted so that
-//! this diagnostic tracks the torus rather than the numerical background.
+//! \brief Mass of the disk body [M_sun], with the uniform ambient medium subtracted.
 Real TotalDiskMass(MeshBlock *pmb, int iout) {
   Real mass_sum = 0.0;
   const Real rho_cut = 2.0 * rho_atm;
@@ -585,11 +574,9 @@ Real TotalDiskMass(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! Angular momentum of the disk body, in CODE units. Athena++'s built-in "2-mom" column
-//! is the volume integral of rho*v_phi, which in cylindrical coordinates is NOT a
-//! conserved quantity: the conserved one carries the lever arm, rho*v_phi*r. With alpha=0
-//! there is no torque on the body, so this column must hold to the level of the boundary
-//! fluxes; with alpha>0 its decay rate is the viscous transport rate.
+//! \brief Angular momentum of the disk body, in code units. The built-in "2-mom" column
+//!        omits the lever arm and is not conserved in cylindrical coordinates; this one
+//!        is, so at alpha = 0 it holds to the level of the boundary fluxes.
 Real DiskAngularMomentum(MeshBlock *pmb, int iout) {
   Real l_sum = 0.0;
   const Real rho_cut = 2.0 * rho_atm;
@@ -611,8 +598,8 @@ Real DiskAngularMomentum(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! Mass accretion rate [M_sun/yr] through the inner boundary (positive = inflow).
-//! Only the MeshBlock owning that boundary contributes, tested against the mesh geometry.
+//! \brief Mass accretion rate [M_sun/yr] through the inner boundary (positive = inflow).
+//!        Only the MeshBlock owning that boundary contributes.
 Real AccretionRate(MeshBlock *pmb, int iout) {
   Real mdot_sum = 0.0;
 
@@ -634,9 +621,8 @@ Real AccretionRate(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! Mass flux [M_sun/yr] through the OUTER boundary (positive = leaving the domain).
-//! Together with mdot_in this closes the mass budget: d(mass)/dt + mdot_out - mdot_in
-//! should vanish, and any residual is mass created or destroyed inside the domain.
+//! \brief Mass flux [M_sun/yr] through the outer boundary (positive = outflow).
+//!        Together with mdot_in it closes the mass budget of the domain.
 Real OuterMassFlux(MeshBlock *pmb, int iout) {
   Real mdot_sum = 0.0;
 
@@ -658,10 +644,8 @@ Real OuterMassFlux(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! Number of active cells sitting on the density floor. In a healthy run this is exactly
-//! zero at every cycle; anything else means the floor, not the physics, is setting the
-//! state somewhere. Counting it here rather than post hoc from snapshots catches
-//! activations that happen and heal between two output times.
+//! \brief Active cells sitting on the density floor, zero at every cycle in a healthy
+//!        run. Counted per cycle because a snapshot misses brief activations.
 Real CountDensityFloor(MeshBlock *pmb, int iout) {
   Real n = 0.0;
   const Real cut = rho_floor * (1.0 + 1.0e-10);
@@ -675,7 +659,7 @@ Real CountDensityFloor(MeshBlock *pmb, int iout) {
   return n;
 }
 
-//! Number of active cells sitting on the pressure floor. See CountDensityFloor().
+//! \brief Active cells sitting on the pressure floor. See CountDensityFloor().
 Real CountPressureFloor(MeshBlock *pmb, int iout) {
   Real n = 0.0;
   const Real cut = press_floor * (1.0 + 1.0e-10);
@@ -690,8 +674,8 @@ Real CountPressureFloor(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! Minimum density over the active cells. The margin rho_min/dfloor is a stronger
-//! statement than a zero floor count: it says how far the run stayed from the floor.
+//! \brief Minimum density over the active cells. The ratio rho_min/dfloor is the margin
+//!        that survived, a stronger statement than a zero floor count.
 Real MinimumDensity(MeshBlock *pmb, int iout) {
   Real d_min = std::numeric_limits<Real>::max();
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
@@ -704,7 +688,7 @@ Real MinimumDensity(MeshBlock *pmb, int iout) {
   return d_min;
 }
 
-//! Minimum pressure over the active cells. See MinimumDensity().
+//! \brief Minimum pressure over the active cells. See MinimumDensity().
 Real MinimumPressure(MeshBlock *pmb, int iout) {
   Real p_min = std::numeric_limits<Real>::max();
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
@@ -718,8 +702,8 @@ Real MinimumPressure(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! Largest |v_r| anywhere. Early warning for the viscous front running away into the
-//! funnel: that failure shows up here long before it shows up in the timestep.
+//! \brief Largest |v_r| anywhere. The viscous front running away into the funnel shows
+//!        up here long before it shows up in the timestep.
 Real MaximumRadialSpeed(MeshBlock *pmb, int iout) {
   Real v_max = 0.0;
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
@@ -733,10 +717,8 @@ Real MaximumRadialSpeed(MeshBlock *pmb, int iout) {
 }
 
 //----------------------------------------------------------------------------------------
-//! The two timestep constraints, reported separately. Athena++ prints only their minimum,
-//! so when dt collapses there is no way to tell the CFL limit from the diffusion limit
-//! without instrumenting a separate run. Both are already computed every cycle; these
-//! two columns just surface them. dt_visc is huge (real_max) when viscosity is off.
+//! \brief The hyperbolic and parabolic timestep limits, reported separately; Athena++
+//!        prints only their minimum. dt_visc is real_max when viscosity is off.
 Real TimeStepHyperbolic(MeshBlock *pmb, int iout) {
   return pmb->pmy_mesh->dt_hyperbolic;
 }
@@ -759,23 +741,12 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
 //----------------------------------------------------------------------------------------
 //! \brief Radial force balance and the discrete residual.
 //!
-//! The forces are formed from the SAME discrete operators the integrator uses -- the
-//! face fluxes it actually applied, the geometric factor src1 = 2/(r_m + r_p), and the
-//! centroid radius r_v -- rather than from a centred difference of p on x1v. That
-//! distinction is the whole point: the initial condition is balanced analytically, and
-//! what drives the run is the part of that balance the discretisation does not reproduce.
-//! With a centred difference f_sum measured the error of the difference formula; now it
-//! measures the residual of the scheme.
-//!
-//! resid_r is the full discrete d(rho v_r)/dt: both flux divergences (including the
-//! viscous stress, which Athena++ adds into the same flux arrays), the geometric source
-//! and gravity. It is the quantity whose norm should converge at second order under grid
-//! refinement.
-//!
-//! The flux arrays are still zero before the first cycle, so the three flux-derived
-//! fields are written as NaN in the t = 0 snapshot rather than as the plausible-looking
-//! numbers they would otherwise be. A wrong number in an output file is worse than a
-//! gap: a gap is visible in a plot and fails a comparison loudly.
+//! The forces are built from the operators the integrator itself uses - the face fluxes
+//! it applied, the geometric factor and the centroid radius - so f_sum is the residual
+//! of the scheme rather than the error of a difference formula. resid_r is the full
+//! discrete d(rho v_r)/dt, including the viscous stress, which Athena++ adds into the
+//! same flux arrays. Those arrays are empty before the first cycle, so the fields
+//! derived from them are written as NaN in the t = 0 snapshot.
 void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
   AthenaArray<Real> &x1flux = phydro->flux[X1DIR];
   AthenaArray<Real> &x2flux = phydro->flux[X2DIR];
@@ -799,8 +770,7 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
         Real press = phydro->w(IPR,k,j,i);
         Real v_phi = phydro->w(IVY,k,j,i);
 
-        // Radial flux divergence of the x1-momentum, exactly as AddFluxDivergence
-        // assembles it. In a static state x1flux(IM1) is the face pressure.
+        // Radial flux divergence of the x1-momentum, as AddFluxDivergence assembles it.
         Real divf1 = -(a_p * x1flux(IM1,k,j,i+1) - a_m * x1flux(IM1,k,j,i)) / vol;
 
         Real divf2 = 0.0;
@@ -816,26 +786,21 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
         // Centrifugal part of the geometric source term, per unit mass
         Real f_centr = src1 * v_phi * v_phi;
 
-        // Everything the scheme does to x1-momentum that is not gravity or centrifugal:
-        // the flux divergence plus the p/r part of the geometric source. Reduces to
-        // -(1/rho) dp/dr in a static state, which is what it is named for.
+        // Everything the scheme does to x1-momentum that is neither gravity nor
+        // centrifugal; reduces to the pressure gradient term in a static state.
         Real f_press = (divf1 + src1 * press) / rho;
 
         // Net radial force per unit mass
         Real f_sum = f_grav + f_centr + f_press;
 
-        // Viscosity, as the solver actually holds it -- the array itself, not a second
-        // copy of the alpha-law evaluated here, so this checks the enrolled coefficient
-        // end to end. Note it was set from the LAST stage's primitives, while w below is
-        // the end-of-cycle state, so comparing the two against the analytic law leaves an
-        // O(dt) offset, largest at the torus surface. That offset must shrink with dt;
-        // it does not shrink to zero at fixed dt, and expecting it to would be wrong.
+        // Viscosity as the solver holds it, not a second copy of the alpha-law evaluated
+        // here. It was set from the last stage's primitives while w is the end-of-cycle
+        // state, so it trails the analytic law by O(dt), largest at the torus surface.
         Real nu_c = have_nu
                     ? phydro->hdif.nu(HydroDiffusion::DiffProcess::iso,k,j,i) : 0.0;
 
-        // Shear stress T_rphi = rho*nu*[ r d(v_phi/r)/dr + (1/r) dv_r/dphi ].
-        // Ghost zones are filled at output time, so centred differences are valid
-        // everywhere in is..ie and js..je.
+        // Shear stress. Ghost zones are filled at output time, so the centred
+        // differences are valid everywhere in is..ie and js..je.
         Real r_mv = pcoord->x1v(i-1);
         Real r_pv = pcoord->x1v(i+1);
         Real shear = rv * (phydro->w(IVY,k,j,i+1)/r_pv - phydro->w(IVY,k,j,i-1)/r_mv)
