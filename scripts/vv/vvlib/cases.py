@@ -48,11 +48,15 @@ PERT_MODES = (1, 2, 3)
 #: budget: m = 3 grows at 0.71 of the m = 1 rate, so the same run length leaves it with
 #: no clean exponential segment while m = 1 has already saturated. Deriving the length
 #: from the theoretical rate gives every mode the same amount of growth to fit.
-#: 8 rather than more: the fit is capped at |A_m|/A_0 < 0.02 anyway (ppi.LINEAR_CEILING),
-#: so anything past that only buys a non-linear tail that trips the floors.
-PPI_EFOLDS = 8.0
+#: 5 rather than more: a seed of PERT_AMP reaches the linearity ceiling |A_m|/A_0 < 0.02
+#: (ppi.LINEAR_CEILING) after about ln(20) = 3 e-foldings, so 5 already leaves margin for
+#: the fit window and anything past that only buys a non-linear tail that trips the
+#: floors. At 8 the cap below bound instead, which made the derivation decorative: all
+#: three modes got the same 7 orbits, which is the fixed budget this exists to avoid.
+PPI_EFOLDS = 5.0
 #: hard cap on the run length. Past the linearity ceiling the mode steepens and the
 #: timestep drops, so the last orbits cost the most and contribute nothing to the fit.
+#: At PPI_EFOLDS = 5 the derived lengths are 4.7 / 5.2 / 6.5 orbits, all below it.
 PPI_MAX_ORBITS = 7.0
 #: samples per orbit of the mode amplitude
 PPI_FRAMES_PER_ORBIT = 4.0
@@ -194,8 +198,27 @@ def build(profile="quick"):
                       post_argv=("-r", "acc_disk_visc.final.rst",
                                  f"time/tlim={2.0 * P:.10g}")))
 
+    # -- MPI ---------------------------------------------------------------------------
+    # The block-decomposition test above proves the pgen and the solver do not depend on
+    # where the cuts are, but it says nothing about MPI: with one rank the ghost zones are
+    # copied within a process. These two runs share the mesh, the decomposition and the
+    # binary, and differ only in whether the exchange goes through memory or through MPI,
+    # so anything but bitwise agreement is a defect in the communication path.
+    # -mpi is a compile-time flag, hence the separate binary; see build_mpi.sh.
+    for ranks in (1, 4):
+        cases.append(Case(
+            f"mpi_{ranks}rank",
+            _base(orbits=1.0, frames=1,
+                  **{"meshblock/nx1": NX // 2, "meshblock/nx2": NX // 2}),
+            ("mpi",), est=_cost(NX, 1.0),
+            binary="athena_mpi",
+            launcher=("mpirun", "-n", str(ranks)) if ranks > 1 else ()))
+
     # -- parameters of numerical origin: none of these may move the answer -------------
-    for rho_atm in (1e-3, 1e-5):
+    # rho_atm gets a third decade below the baseline: two points can only show that the
+    # answer moved, three below it can show that it stops moving, which is the statement
+    # the ambient medium needs (V3.1).
+    for rho_atm in (1e-3, 1e-5, 1e-6):
         cases.append(Case(f"sens_rhoatm_{rho_atm:g}",
                           _base(orbits=2.0, frames=1,
                                 **{"problem/rho_atm": rho_atm,
