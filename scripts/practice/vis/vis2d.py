@@ -12,14 +12,17 @@ BASIC USAGE:
         Creates all plots + 2 animations for the last frame
 
 OPTIONS:
-    --mode {all,heatmaps,radial,polar,azimuthal,animation,polar_animation}
-        all             - all plots + both animations (default)
-        heatmaps        - 2D heatmaps of all variables
-        radial          - radial profiles (averaged over φ)
-        polar           - polar coordinate plots
-        azimuthal       - azimuthal profiles (at different radii)
-        animation       - Cartesian animation
-        polar_animation - polar animation
+    --mode {all,heatmaps,radial,polar,azimuthal,animation,polar_animation,
+            vector_animation}
+        all              - all plots + both animations (default)
+        heatmaps         - 2D heatmaps of all variables
+        radial           - radial profiles (averaged over φ)
+        polar            - polar coordinate plots
+        azimuthal        - azimuthal profiles (at different radii)
+        animation        - Cartesian animation
+        polar_animation  - polar animation
+        vector_animation - the vector field alone, one large polar panel over a
+                           density background; implies --add-vectors
     
     --frame N        - process specific frame (default: last)
     --fps N          - FPS for animations (default: 10)
@@ -39,6 +42,49 @@ OPTIONS:
     --vmax_percentile FLOAT - upper percentile for color scale (default: 98.0)
                               Use percentiles to filter extreme outliers and
                               improve color contrast during normal evolution
+
+VECTOR OVERLAY (entirely off unless --add-vectors is given, so every existing
+command keeps producing exactly what it did before):
+    --add-vectors    - draw the vector field. By default only on the bottom-right
+                       panel (azimuthal velocity) of the polar views, plus a panel
+                       of its own in the heatmap and the Cartesian animation
+    --vec_panels {last,all}
+                     - last: only that bottom-right panel. all: every polar panel
+    --vec_field {velocity,momentum}
+    --vec_comp {both,radial,azimuthal}
+                     - both is the true direction. In this disk v_phi is ~130x v_r,
+                       so a 'both' arrow is tilted off the tangent by well under a
+                       degree and the radial flow is invisible; ask for it on its
+                       own to see it, since each component is autoscaled separately
+    --vec_frame {perturbation,full}
+                     - perturbation subtracts the azimuthal mean. On an axisymmetric
+                       run that leaves only round-off, and the script says so instead
+                       of drawing noise
+    --vec_style {quiver,stream}
+    --vec_arrows N   - roughly how many arrows across the radial range (default 8)
+    --vec_stride N   - fixed every-Nth-cell stride instead of --vec_arrows
+    --vec_clip PCT   - cap arrow length at this percentile so fast cells do not draw
+                       through their neighbours; direction is untouched (default 92)
+    --vec_density F  - streamline density for --vec_style stream (default 0.6). This
+                       one knob sets both line count and integrator step, so lowering
+                       it for fewer lines also makes closed orbits polygonal
+
+    On the polar view arrows sit on a lattice that is uniform in physical distance -
+    rings a fixed distance apart, arrows that same distance apart along each ring -
+    so the coverage looks as even as a Cartesian one rather than bunching towards
+    the axis.
+
+    The scale is reported as "longest arrow = ..." in the caption, and additionally
+    as a reference arrow on the r-phi panels. Arrow length is capped and pinned to
+    the sampling spacing, so arrows never overlap and never rescale between frames
+    of an animation.
+
+VECTOR EXAMPLES:
+    python3 vis2d.py --mode polar --add-vectors --vec_frame full
+    python3 vis2d.py --mode polar --add-vectors --vec_comp radial --vec_frame full
+    python3 vis2d.py --mode polar --add-vectors --vec_panels all --vec_frame full
+    python3 vis2d.py --mode vector_animation --vec_comp radial --vec_frame full
+    python3 vis2d.py --mode polar --add-vectors --vec_style stream --vec_density 0.9
 
 EXAMPLES:
     # Basic usage
@@ -96,7 +142,7 @@ import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for faster rendering
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from matplotlib.colors import LogNorm, Normalize
+from matplotlib.colors import LogNorm, Normalize, LinearSegmentedColormap
 from matplotlib import cm
 import warnings
 warnings.filterwarnings('ignore')
@@ -128,6 +174,10 @@ CONFIG = {
 # fraction of it. The velocities are not on this list: <v_r> is close to zero, and
 # dividing by it turns a small deviation into a large meaningless number.
 RELATIVE_NORM_VARS = ['density', 'pressure']
+
+# Background for the vector panels. Tops out at mid grey so black arrows stay legible
+# without alpha - alpha on a pcolormesh leaks its cell edges and hatches the figure.
+VEC_BG_CMAP = LinearSegmentedColormap.from_list('vecbg', ['#ffffff', '#a8a8a8'])
 
 VARIABLE_INFO = {
     'density': {
@@ -182,7 +232,8 @@ parser.add_argument("--title", default=None,
 parser.add_argument("--output_dir", default=None, 
                     help="Output directory (default: ../figs_2d)")
 parser.add_argument("--mode", default="all",
-                    choices=['all', 'heatmaps', 'radial', 'polar', 'azimuthal', 'animation', 'polar_animation'],
+                    choices=['all', 'heatmaps', 'radial', 'polar', 'azimuthal',
+                             'animation', 'polar_animation', 'vector_animation'],
                     help="Visualization mode")
 parser.add_argument("--frame", type=int, default=None,
                     help="Frame number to visualize (default: last frame)")
@@ -215,6 +266,52 @@ parser.add_argument("--vmin_percentile", type=float, default=2.0,
                     help="Lower percentile for color scale (default: 2.0, filters extreme low values)")
 parser.add_argument("--vmax_percentile", type=float, default=98.0,
                     help="Upper percentile for color scale (default: 98.0, filters extreme high values)")
+parser.add_argument("--add-vectors", dest="vectors", action="store_true",
+                    help="Overlay the vector field (off by default)")
+parser.add_argument("--vec_field", default="velocity", choices=["velocity", "momentum"],
+                    help="Vector quantity: velocity (v_r, v_phi) or momentum (rho*v)")
+parser.add_argument("--vec_comp", default="both",
+                    choices=["both", "radial", "azimuthal"],
+                    help="both: the true direction, radial and azimuthal at once. "
+                         "radial / azimuthal: that component alone, autoscaled on its "
+                         "own - the only way to see v_r, which is ~1/130 of v_phi here "
+                         "and so tilts a 'both' arrow by well under a degree")
+parser.add_argument("--vec_frame", default="perturbation",
+                    choices=["perturbation", "full"],
+                    help="perturbation: subtract the azimuthal mean, so rotation does not "
+                         "swamp everything. full: raw field")
+parser.add_argument("--vec_panels", default="last", choices=["last", "all"],
+                    help="Which polar panels carry arrows. last: only the bottom-right "
+                         "one (azimuthal velocity), which keeps the other three clean. "
+                         "all: every panel (default: last)")
+parser.add_argument("--vec_style", default="quiver", choices=["quiver", "stream"],
+                    help="quiver: arrow length ~ magnitude. stream: streamlines")
+parser.add_argument("--vec_lattice", default="polar",
+                    choices=["square", "hex", "polar"],
+                    help="Where arrows sit on the POLAR view. square: a true Cartesian "
+                         "grid clipped to the annulus - equal spacing along rows and "
+                         "columns. hex: triangular packing, every point equidistant "
+                         "from six neighbours, the most even option. polar: rings of "
+                         "equal radial spacing (spacing along each ring is only "
+                         "approximate, so rows stagger). Default: polar")
+parser.add_argument("--vec_scale", default="log", choices=["linear", "sqrt", "log"],
+                    help="How magnitude maps to arrow LENGTH. sqrt/log compress the "
+                         "range so weak cells stay visible while strong ones stop "
+                         "dominating - useful when the field varies by decades")
+parser.add_argument("--vec_arrows", type=int, default=8,
+                    help="Roughly how many arrows across the radial range (default: 8)")
+parser.add_argument("--vec_stride", type=int, default=None,
+                    help="Override --vec_arrows with a fixed every-Nth-cell stride")
+parser.add_argument("--vec_color", default="black",
+                    help="Arrow/streamline colour")
+parser.add_argument("--vec_density", type=float, default=0.6,
+                    help="Streamline density for --vec_style stream. Trades line count against "
+                         "smoothness in one knob: below ~0.6 closed orbits render as "
+                         "polygons (default: 0.6)")
+parser.add_argument("--vec_clip", type=float, default=92.0,
+                    help="Percentile at which arrow LENGTH is capped, so the fastest "
+                         "cells do not draw arrows through their neighbours. Direction "
+                         "is never changed; 100 disables the cap (default: 92)")
 
 args = parser.parse_args()
 
@@ -245,6 +342,19 @@ CONFIG['phi_max'] = args.phi_max
 CONFIG['vmin_percentile'] = args.vmin_percentile
 CONFIG['vmax_percentile'] = args.vmax_percentile
 CONFIG['normalize'] = args.normalize
+CONFIG['vectors'] = args.vectors
+CONFIG['vec_field'] = args.vec_field
+CONFIG['vec_comp'] = args.vec_comp
+CONFIG['vec_frame'] = args.vec_frame
+CONFIG['vec_panels'] = args.vec_panels
+CONFIG['vec_style'] = args.vec_style
+CONFIG['vec_lattice'] = args.vec_lattice
+CONFIG['vec_scale'] = args.vec_scale
+CONFIG['vec_arrows'] = args.vec_arrows
+CONFIG['vec_stride'] = args.vec_stride
+CONFIG['vec_color'] = args.vec_color
+CONFIG['vec_density'] = args.vec_density
+CONFIG['vec_clip'] = args.vec_clip
 
 if args.normalize == 'azimuthal':
     # The normalised fields are signed and centred on zero, so a sequential map on a log
@@ -454,6 +564,11 @@ def normalize_azimuthal(data):
     The result is signed and centred on zero, so the caller also switches to a diverging
     colour map and turns off log scaling.
     """
+    # The arrow overlay must be built from the unnormalised field: it does its own
+    # frame subtraction, and doing it twice would silently halve nothing and confuse
+    # --vec_frame full. Stash the originals whether or not normalisation runs.
+    data = dict(data)
+    data['_raw'] = {k: data[k] for k in ('density', 'vel_r', 'vel_phi') if k in data}
     if CONFIG.get('normalize') != 'azimuthal':
         return data
     out = dict(data)
@@ -468,6 +583,373 @@ def normalize_azimuthal(data):
         else:
             out[key] = field - mean[None, :]
     return out
+
+# =============================================================================
+# VECTOR FIELD OVERLAY
+# =============================================================================
+# Why a frame choice exists at all: in this disk v_phi is ~130x v_r (medians 152 vs
+# 1.15 in the reference sweep). Arrows built from the raw velocity are therefore a
+# uniform azimuthal swirl in which nothing else is visible. Subtracting the azimuthal
+# mean leaves the flow that actually carries the physics - spiral arms, the accretion
+# stream, a growing Papaloizou-Pringle mode.
+#
+# Geometry, verified against a Cartesian ground truth for pure rotation and pure
+# outflow before any of this was wired in:
+#   polar axes   matplotlib treats quiver's U,V as screen offsets, and screen space
+#                for a polar plot is Cartesian - so pass true (v_x, v_y).
+#                streamplot integrates in the axes' data space (theta, r), so there
+#                it wants (v_phi/r, v_r) instead, transposed to (nr, nphi).
+#   r-phi axes   motion in that plane is (dr/dt, dphi/dt) = (v_r, v_phi/r).
+
+_SYM = {'velocity': r"\vec{v}", 'momentum': r"\rho\vec{v}"}
+_COMP = {'both': '', 'radial': r"$_r$", 'azimuthal': r"$_\phi$"}
+
+
+def vector_caption():
+    """Caption line. Carries the arrow scale for the polar views, which have no room
+    for a quiverkey: all four corners of a polar axes already hold an angle label."""
+    cap = CONFIG.get('_vec_cap')
+    tail = f",  longest arrow = {cap:.3g}" if cap and CONFIG['vec_style'] != 'stream' else ""
+    if CONFIG.get('vec_scale', 'log') != 'linear' and tail:
+        tail += f" ({CONFIG['vec_scale']} length scale)"
+    return f"arrows: {vector_label()}  ({CONFIG['vec_style']}){tail}"
+
+
+def vector_label():
+    s = _SYM[CONFIG['vec_field']]
+    base = (f"${s}$" if CONFIG['vec_frame'] == 'full'
+            else f"${s}-\\langle{s}\\rangle_\\phi$")
+    comp = CONFIG.get('vec_comp', 'both')
+    return base if comp == 'both' else base + f" ({comp} only)"
+
+
+_DEGENERATE_WARNED = [False]
+
+
+def vector_field(data, want_info=False):
+    """(u_r, u_phi) on the full (nphi, nr) grid, per --vec_field and --vec_frame.
+
+    In the perturbation frame an axisymmetric run leaves only round-off, and quiver
+    autoscales it into what looks like real structure. Whenever the residual is a
+    round-off-sized fraction of the full field we say so rather than drawing a
+    convincing picture of nothing - the measured value in a quiet 100-orbit run is
+    ~1e-14 of the field, which is exactly "no mode was ever seeded".
+    """
+    raw = data.get('_raw', data)
+    u_r = to_cpu(raw['vel_r']).astype(float)
+    u_phi = to_cpu(raw['vel_phi']).astype(float)
+    if CONFIG['vec_field'] == 'momentum':
+        rho = to_cpu(raw['density']).astype(float)
+        u_r, u_phi = rho * u_r, rho * u_phi
+
+    comp = CONFIG.get('vec_comp', 'both')
+    if comp == 'radial':
+        u_phi = np.zeros_like(u_phi)
+    elif comp == 'azimuthal':
+        u_r = np.zeros_like(u_r)
+
+    info = {'degenerate': False, 'rel': 1.0}
+    if CONFIG['vec_frame'] == 'perturbation':
+        full = float(np.abs(np.hypot(u_r, u_phi)).max())
+        u_r = u_r - u_r.mean(axis=0)[None, :]
+        u_phi = u_phi - u_phi.mean(axis=0)[None, :]
+        pert = float(np.abs(np.hypot(u_r, u_phi)).max())
+        info['rel'] = pert / full if full > 0 else 0.0
+        info['degenerate'] = info['rel'] < 1.0e-8
+        if info['degenerate'] and not _DEGENERATE_WARNED[0]:
+            _DEGENERATE_WARNED[0] = True
+            print(f"  *** WARNING: the flow is axisymmetric to {info['rel']:.1e} of the "
+                  f"full field.\n"
+                  f"      Nothing seeded a non-axisymmetric mode, so the perturbation "
+                  f"frame has only\n"
+                  f"      round-off to show and the arrows would be noise. Use "
+                  f"--vec_frame full, or\n"
+                  f"      set <problem>/pert_amp > 0 in the athinput and rerun.")
+    return (u_r, u_phi, info) if want_info else (u_r, u_phi)
+
+
+def _stride(n, target=None):
+    """Decimation step that leaves roughly `target` arrows along an axis."""
+    if CONFIG.get('vec_stride'):
+        return max(1, int(CONFIG['vec_stride']))
+    target = target or CONFIG.get('vec_arrows', 8)
+    return max(1, int(round(n / float(target))))
+
+
+def _grid_lattice(r, phi, hexagonal=False):
+    """Cell indices on a true Cartesian (or triangular) lattice clipped to the annulus.
+
+    The polar-ring version below spaces rings evenly but has to round 2*pi*r/d to a
+    whole number of arrows per ring, so the along-ring step drifts and neighbouring
+    rings never line up - the eye reads that as a stagger, not a lattice. Laying the
+    points out in (x, y) instead and keeping the ones that land on the annulus gives
+    genuinely equal spacing along rows and columns. `hexagonal` offsets alternate rows
+    by half a step and compresses row spacing by sqrt(3)/2, which is the arrangement
+    where every point is equidistant from all six of its neighbours.
+
+    Both families are built as integer multiples of the step about the origin. Starting
+    from -r_max and stepping instead - the obvious way - only lands on the centre when
+    the diameter happens to be a whole number of steps, so the whole pattern sat 0.30
+    off centre and overshot the outer edge.
+
+    Returns (j, i, r_exact, phi_exact) like _polar_lattice.
+    """
+    n = max(2, CONFIG.get('vec_arrows', 8))
+    r0, r1 = float(r[0]), float(r[-1])
+    d = (r1 - r0) / n
+    if d <= 0:
+        return (np.zeros(0, int),) * 2 + (np.zeros(0),) * 2
+
+    row_step = d * (np.sqrt(3.0) / 2.0 if hexagonal else 1.0)
+    m = int(np.ceil(r1 / row_step))
+    k_max = int(np.ceil(r1 / d)) + 1
+    cols = np.arange(-k_max, k_max + 1, dtype=float)
+    X, Y = [], []
+    for row in range(-m, m + 1):
+        # odd hex rows sit at half-integer multiples, which is still symmetric about 0
+        xs = (cols + 0.5) * d if (hexagonal and row % 2) else cols * d
+        X.append(xs)
+        Y.append(np.full(xs.shape, row * row_step))
+    X, Y = np.concatenate(X), np.concatenate(Y)
+
+    rr = np.hypot(X, Y)
+    keep = (rr >= r0) & (rr <= r1)
+    if not keep.any():
+        return (np.zeros(0, int),) * 2 + (np.zeros(0),) * 2
+    X, Y, rr = X[keep], Y[keep], rr[keep]
+    pp = np.mod(np.arctan2(Y, X), 2.0 * np.pi)
+
+    return _nearest(phi, pp), _nearest(r, rr), rr, pp
+
+
+def _nearest(axis, values):
+    """Index of the closest cell centre, not merely the insertion point."""
+    idx = np.clip(np.searchsorted(axis, values), 1, len(axis) - 1)
+    left = np.abs(values - axis[idx - 1]) <= np.abs(axis[np.minimum(idx, len(axis) - 1)]
+                                                    - values)
+    return np.clip(np.where(left, idx - 1, idx), 0, len(axis) - 1)
+
+
+def _polar_lattice(r, phi):
+    """Cell indices on a lattice that is uniform in PHYSICAL space, not in index space.
+
+    A fixed index stride puts the same number of arrows on every ring, so they crowd
+    together towards the axis where the rings are short. Instead place rings a fixed
+    distance d apart and space arrows d apart *along* each ring, which is what makes a
+    polar plot look as evenly covered as a Cartesian one. Concentric by construction,
+    so it is centred on the origin whatever the step works out to.
+
+    Returns (j, i, r_exact, phi_exact): the indices say which cell to read the field
+    from, the last two say where to draw. Drawing at cell centres instead would quantise
+    the lattice to the mesh - 2.8 degrees per cell at nphi=128, enough to see.
+    """
+    n_rings = max(2, CONFIG.get('vec_arrows', 8))
+    r0, r1 = float(r[0]), float(r[-1])
+    d = (r1 - r0) / n_rings
+    if d <= 0:
+        return (np.zeros(0, int),) * 2 + (np.zeros(0),) * 2
+    js, iss, rr, pp = [], [], [], []
+    for k in range(n_rings):
+        rk = r0 + (k + 0.5) * d
+        i = int(np.argmin(np.abs(r - rk)))
+        n_arrow = max(3, int(round(2.0 * np.pi * rk / d)))
+        angles = 2.0 * np.pi * (np.arange(n_arrow) + 0.5) / n_arrow
+        js.append(_nearest(phi, angles))
+        iss.append(np.full(n_arrow, i))
+        rr.append(np.full(n_arrow, rk))
+        pp.append(angles)
+    return (np.concatenate(js), np.concatenate(iss),
+            np.concatenate(rr), np.concatenate(pp))
+
+
+def _vectors_on_grid(data, polar):
+    """(X, Y, U, V) ready for ax.quiver, on whichever grid the view needs."""
+    r, phi = to_cpu(data['r']), to_cpu(data['phi'])
+    R, Phi = to_cpu(data['R']), to_cpu(data['Phi'])
+    u_r, u_phi = vector_field(data)
+    if polar:
+        lat = CONFIG.get('vec_lattice', 'polar')
+        j, i, Rs, Phis = (_polar_lattice(r, phi) if lat == 'polar'
+                          else _grid_lattice(r, phi, hexagonal=(lat == 'hex')))
+        # field sampled at the owning cell, arrow drawn at the exact lattice point
+        ur, up = u_r[j, i], u_phi[j, i]
+        # true Cartesian components; matplotlib draws U,V in screen space here
+        return (Phis, Rs,
+                ur * np.cos(Phis) - up * np.sin(Phis),
+                ur * np.sin(Phis) + up * np.cos(Phis))
+    sl = (slice(None, None, _stride(len(phi))), slice(None, None, _stride(len(r))))
+    Rs = R[sl]
+    return Rs, Phi[sl], u_r[sl], u_phi[sl] / np.maximum(Rs, 1e-30)  # (dr/dt, dphi/dt)
+
+
+def _shape_length(U, V, cap):
+    """Remap magnitude to arrow length. Direction is never touched.
+
+    linear is faithful but useless when the field spans decades: everything below the
+    cap collapses into invisible stubs. sqrt and log compress the range so the weak
+    cells stay readable, at the cost of length no longer being proportional - which is
+    why the caption names the mapping.
+    """
+    mode = CONFIG.get('vec_scale', 'log')
+    if mode == 'linear' or cap <= 0:
+        return U, V
+    mag = np.hypot(U, V)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        t = np.clip(mag / cap, 0.0, 1.0)
+        new = np.sqrt(t) if mode == 'sqrt' else np.log1p(9.0 * t) / np.log(10.0)
+        f = np.where(mag > 0, new * cap / np.maximum(mag, 1e-30), 0.0)
+    return U * f, V * f
+
+
+def _clip_length(U, V, cap=None):
+    """Shorten the longest arrows to a percentile cap, keeping direction exactly.
+
+    Returns (U, V, cap). --vec_clip 100 disables the shortening but still reports a cap
+    so the key stays meaningful.
+    """
+    mag = np.hypot(U, V)
+    good = mag[np.isfinite(mag) & (mag > 0)]
+    pct = float(CONFIG.get('vec_clip', 92))
+    if cap is None:
+        if not good.size:
+            return U, V, 1.0
+        cap = float(np.percentile(good, min(max(pct, 1.0), 100.0)))
+    if not np.isfinite(cap) or cap <= 0:
+        return U, V, (float(good.max()) if good.size else 1.0)
+    if pct >= 100.0:
+        return U, V, cap
+    with np.errstate(invalid='ignore', divide='ignore'):
+        shrink = np.where(mag > cap, cap / np.maximum(mag, 1e-30), 1.0)
+    return U * shrink, V * shrink, cap
+
+
+def overlay_vectors(ax, data, polar, add_key=True, artists=None, scale_from=None):
+    """Draw the vector overlay on `ax`.
+
+    polar=True  -> ax has projection='polar' and pcolormesh(Phi, R, ...)
+    polar=False -> ax is an r-phi rectangle, pcolormesh(R, Phi, ...)
+
+    Returns a dict of artists for animation reuse; pass it back as `artists` to update
+    in place. Streamlines cannot be updated, so they are torn down and redrawn.
+    """
+    if not CONFIG.get('vectors'):
+        return None
+
+    r = to_cpu(data['r'])
+    phi = to_cpu(data['phi'])
+    R = to_cpu(data['R'])
+    Phi = to_cpu(data['Phi'])
+    u_r, u_phi, vinfo = vector_field(data, want_info=True)
+    style = CONFIG['vec_style']
+    if vinfo['degenerate']:
+        # Drawing round-off would be a picture of noise that looks like a result.
+        ax.text(0.5, 0.5, f"axisymmetric\nto {vinfo['rel']:.0e}\n(no mode seeded)",
+                transform=ax.transAxes, ha='center', va='center', fontsize=9,
+                color='crimson', fontweight='bold', zorder=6,
+                bbox=dict(boxstyle='round', fc='white', ec='crimson', alpha=0.85))
+        return None
+
+    if style == 'stream':
+        return _overlay_stream(ax, r, phi, R, u_r, u_phi, polar, artists)
+
+    X, Y, U, V = _vectors_on_grid(data, polar)
+
+    # Cap the length. |v_r| spans an order of magnitude across the disk, so on a single
+    # linear scale the fastest arrows are long enough to run through their neighbours
+    # and off the axes. Clipping keeps direction exactly and only shortens the tail of
+    # the distribution; the key reports the cap so the scale is still readable.
+    #
+    # The cap comes from `scale_from` when the caller supplies one. An animation fixes
+    # the quiver scale on the frame it creates the artist from, and frame 0 of these
+    # runs has v = 0 everywhere - scaling off that produced arrows the width of the
+    # panel once real data arrived. The animations therefore hand in a developed frame.
+    _, _, rU, rV = (_vectors_on_grid(scale_from, polar) if scale_from is not None
+                    else (None, None, U, V))
+    _, _, cap = _clip_length(rU, rV)
+    U, V, _ = _clip_length(U, V, cap=cap)
+    U, V = _shape_length(U, V, cap)
+
+    if artists and 'quiver' in artists:
+        artists['quiver'].set_UVC(U, V)
+        return artists
+
+    ref = cap
+    # Always pin the scale explicitly; never let quiver autoscale. Autoscaling reads
+    # only the frame the artist is created from, which in an animation is frame 0 with
+    # v = 0, and it also let the innermost polar ring draw arrows across the disk.
+    if polar:
+        # scale_units='width': an arrow of magnitude `scale` spans the axes, and the
+        # axes spans 2*r_max of data. Longest arrow -> 0.85 of the lattice spacing.
+        d = (float(r[-1]) - float(r[0])) / max(2, CONFIG.get('vec_arrows', 8))
+        qkw = {'scale_units': 'width',
+               'scale': cap * 2.0 * float(r[-1]) / (0.85 * d)}
+    else:
+        # scale_units='x': magnitude `scale` is one r-unit long. Longest arrow -> 0.85
+        # of the sampling spacing in r.
+        dx = (float(r[-1]) - float(r[0])) / max(len(r), 1) * _stride(len(r))
+        qkw = {'scale_units': 'x', 'scale': cap / (0.85 * max(dx, 1e-30))}
+    q = ax.quiver(X, Y, U, V, color=CONFIG['vec_color'], alpha=0.9, pivot='mid',
+                  width=0.005, headwidth=3.4, headlength=4.2, headaxislength=3.6,
+                  zorder=5, **qkw)
+    if add_key:
+        # Placing the key is fiddly and every obvious spot has failed once already:
+        # above the axes it ran through the panel title, at x=0.97 the shaft ran off
+        # the panel, and at 0.72 on a POLAR axes it landed on the disk itself where
+        # dark text on a dark rim is invisible. A polar axes is square with the disk
+        # inscribed, so its corner is the one reliably blank area; the r-phi rectangle
+        # is data everywhere, so the key gets a backing box instead.
+        if not polar:
+            ax.quiverkey(q, 0.72, 0.94, ref, f"{ref:.3g}", labelpos='W',
+                         coordinates='axes', labelsep=0.05, zorder=7,
+                         fontproperties={'size': 8})
+    CONFIG['_vec_cap'] = cap
+    return {'quiver': q, 'cap': cap}
+
+
+def _overlay_stream(ax, r, phi, R, u_r, u_phi, polar, artists):
+    """Streamlines. matplotlib cannot update these, so old ones are removed first."""
+    if artists and 'stream' in artists:
+        artists['stream'].lines.remove()
+        for art in list(ax.patches):
+            art.remove()
+
+    omega = u_phi / np.maximum(R, 1e-30)          # dphi/dt
+    color = CONFIG['vec_color']
+    dens = CONFIG['vec_density']
+
+    # streamplot demands an exactly uniform grid, and .tab stores coordinates to only
+    # ~5 significant digits, so the recorded spacing wobbles by ~1e-3 of a cell and
+    # numpy's allclose rejects it. The mesh really is uniform (x1rat = 1), so rebuild
+    # the axes exactly; the shift is far below one pixel.
+    r = np.linspace(r[0], r[-1], len(r))
+    phi = np.linspace(phi[0], phi[-1], len(phi))
+
+    try:
+        if polar:
+            # phi is periodic: repeat the first row at 2*pi so streamlines do not
+            # break along the seam at phi = 0.
+            dphi = phi[1] - phi[0] if len(phi) > 1 else 0.0
+            php = np.append(phi, phi[-1] + dphi)
+            wp = np.vstack([omega, omega[:1]])
+            vrp = np.vstack([u_r, u_r[:1]])
+            # NOTE on --vec_density: streamplot steps in units of its internal mask,
+            # which is 30*density cells across, NOT in units of the data grid. So the
+            # knob trades line count against smoothness in one: below ~0.6 the closed
+            # orbits of a rotating disk visibly become polygons, and refining the data
+            # grid does not help because the integrator never sees it.
+            sp = ax.streamplot(php, r, wp.T, vrp.T, density=dens, color=color,
+                               linewidth=0.7, arrowsize=0.7)
+            ax.set_ylim(r.min(), r.max())   # streamplot otherwise rescales the r axis
+        else:
+            sp = ax.streamplot(r, phi, u_r.T, omega.T, density=dens, color=color,
+                               linewidth=0.7, arrowsize=0.7)
+            ax.set_xlim(r.min(), r.max())
+            ax.set_ylim(phi.min(), phi.max())
+    except (ValueError, IndexError) as exc:
+        print(f"    streamplot skipped: {exc}")
+        return None
+    return {'stream': sp}
+
 
 # =============================================================================
 # PARALLEL PROCESSING HELPERS (must be at module level for pickling)
@@ -539,9 +1021,24 @@ def plot_2d_heatmap(data, frame_num, output_dir):
             plt.colorbar(im, ax=ax, label=info['label'])
             ax.grid(True, alpha=0.3)
     
-    # Remove last subplot
-    axes.flatten()[5].remove()
-    
+    # The sixth slot is the vector field on its own, over density: on the v_r and
+    # v_phi panels arrows would only restate what the colour already says.
+    ax = axes.flatten()[5]
+    if CONFIG.get('vectors'):
+        rho = to_cpu(data['density'])
+        # muted so the black arrows stay legible on top of it
+        ax.pcolormesh(to_cpu(data['R']), to_cpu(data['Phi']), rho,
+                      cmap=VEC_BG_CMAP, shading='auto',
+                      norm=(LogNorm(vmin=rho[rho > 0].min(), vmax=rho.max())
+                            if np.all(rho > 0) else Normalize()))
+        overlay_vectors(ax, data, polar=False)
+        ax.set_xlabel('r', fontsize=12)
+        ax.set_ylabel(r'$\phi$ (rad)', fontsize=12)
+        ax.set_title(f"{vector_label()}  over $\\rho$", fontsize=13, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+    else:
+        ax.remove()
+
     plt.tight_layout()
     filename = os.path.join(output_dir, f"heatmap_frame_{frame_num:05d}.png")
     plt.savefig(filename, dpi=CONFIG['dpi'], bbox_inches='tight')
@@ -608,7 +1105,7 @@ def plot_polar(data, frame_num, output_dir):
                  fontsize=16, fontweight='bold')
     
     variables = ['density', 'pressure', 'vel_r', 'vel_phi']
-    
+
     for idx, var in enumerate(variables):
         ax = plt.subplot(2, 2, idx+1, projection='polar')
         var_data = to_cpu(data[var])
@@ -627,12 +1124,17 @@ def plot_polar(data, frame_num, output_dir):
         # Polar plot
         Phi_cpu = to_cpu(data['Phi'])
         R_cpu = to_cpu(data['R'])
-        im = ax.pcolormesh(Phi_cpu, R_cpu, var_data, 
+        im = ax.pcolormesh(Phi_cpu, R_cpu, var_data,
                           cmap=info['cmap'], norm=norm, shading='auto')
         ax.set_title(info['label'], fontsize=13, fontweight='bold', pad=20)
         plt.colorbar(im, ax=ax, label=info['label'], pad=0.1)
         ax.grid(True, alpha=0.3)
-    
+        if CONFIG['vec_panels'] == 'all' or idx == len(variables) - 1:
+            overlay_vectors(ax, data, polar=True, add_key=True)
+
+    if CONFIG.get('vectors'):
+        fig.text(0.5, 0.012, vector_caption(),
+                 ha='center', fontsize=11)
     plt.tight_layout()
     filename = os.path.join(output_dir, f"polar_frame_{frame_num:05d}.png")
     plt.savefig(filename, dpi=CONFIG['dpi'], bbox_inches='tight')
@@ -700,7 +1202,10 @@ def create_animation(available_frames, frames_dict, output_dir):
     print(f"  Total frames: {len(available_frames)}")
     print(f"  Animation frames: {len(frames_subset)} (subsampled by {CONFIG['subsample']})")
     
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    # 2x3 so the vector field gets a panel of its own, matching the heatmap layout.
+    _vec_on = CONFIG.get('vectors')
+    fig, axes = plt.subplots(2, 3 if _vec_on else 2,
+                             figsize=(17, 10) if _vec_on else (12, 10))
     fig.suptitle(_ad.format_title("Disk Evolution", args.title, time=0.0, cycle=0,
                                   frame=0, base=(_ad.INFO or {}).get("base", ""), plot="animation"),
                  fontsize=16, fontweight='bold')
@@ -788,25 +1293,54 @@ def create_animation(available_frames, frames_dict, output_dir):
         plt.colorbar(im, ax=ax)
         ax.grid(True, alpha=0.3)
         ims.append(im)
-    
+
+    vec_ax = vec_artists = vec_bg = None
+    if _vec_on:
+        flat = axes.flatten()
+        vec_ax = flat[4]
+        rho0 = to_cpu(first_data['density'])
+        vec_bg = vec_ax.pcolormesh(
+            to_cpu(first_data['R']), to_cpu(first_data['Phi']), rho0, cmap=VEC_BG_CMAP,
+            shading='auto',
+            norm=(LogNorm(*global_ranges['density']) if global_ranges['density'][0] > 0
+                  else Normalize(*global_ranges['density'])))
+        _scale_ref = filter_data_by_bounds(
+            read_athena_2d(frames_dict[frames_subset[-1]]),
+            CONFIG['r_min'], CONFIG['r_max'], CONFIG['phi_min'], CONFIG['phi_max'])
+        vec_artists = overlay_vectors(vec_ax, first_data, polar=False,
+                                      scale_from=_scale_ref)
+        vec_ax.set_xlabel('r')
+        vec_ax.set_ylabel(r'$\phi$')
+        vec_ax.set_title(f"{vector_label()} over $\\rho$")
+        vec_ax.grid(True, alpha=0.3)
+        flat[5].remove()
+
     # Add frame number to text
     time_text = fig.text(0.5, 0.95, '', ha='center', fontsize=12, fontweight='bold')
-    
+
     def update(frame_idx):
         frame = frames_subset[frame_idx]
         data = read_athena_2d(frames_dict[frame])
-        
+
         # Apply bounds filtering
         data = filter_data_by_bounds(data, CONFIG['r_min'], CONFIG['r_max'],
                                       CONFIG['phi_min'], CONFIG['phi_max'])
-        
+
         # Update text with frame number
         time_text.set_text(f"Frame {frame_idx:3d}/{len(frames_subset)-1} | Time = {data['time']:5.2f}")
-        
+
         for idx, var in enumerate(variables):
             ims[idx].set_array(to_cpu(data[var]).ravel())
-        
-        return ims + [time_text]
+
+        nonlocal_out = ims + [time_text]
+        if _vec_on:
+            vec_bg.set_array(to_cpu(data['density']).ravel())
+            update.artists = overlay_vectors(vec_ax, data, polar=False,
+                                             artists=update.artists)
+            nonlocal_out = nonlocal_out + [vec_bg]
+        return nonlocal_out
+
+    update.artists = vec_artists
     
     print("  Generating animation...")
     ani = animation.FuncAnimation(fig, update, frames=len(frames_subset),
@@ -922,24 +1456,43 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
         
         ims.append(im)
         cbars.append(cbar)
-    
+
+    # Frame 0 is the initial condition with v = 0, so scale the arrows off the last
+    # frame instead; otherwise quiver locks in a scale derived from nothing.
+    _scale_ref = filter_data_by_bounds(read_athena_2d(frames_dict[frames_subset[-1]]),
+                                       CONFIG['r_min'], CONFIG['r_max'],
+                                       CONFIG['phi_min'], CONFIG['phi_max'])
+    _last = len(axes) - 1
+    vec_artists = [overlay_vectors(ax, first_data, polar=True, add_key=True,
+                                   scale_from=_scale_ref)
+                   if (CONFIG['vec_panels'] == 'all' or i == _last) else None
+                   for i, ax in enumerate(axes)]
+
     # Add frame number to text
     time_text = fig.text(0.5, 0.94, '', ha='center', fontsize=12, fontweight='bold')
-    
+    if CONFIG.get('vectors'):
+        fig.text(0.5, 0.015, vector_caption(),
+                 ha='center', fontsize=11)
+
     def update(frame_idx):
         frame = frames_subset[frame_idx]
         data = read_athena_2d(frames_dict[frame])
-        
+
         # Apply bounds filtering
         data = filter_data_by_bounds(data, CONFIG['r_min'], CONFIG['r_max'],
                                       CONFIG['phi_min'], CONFIG['phi_max'])
-        
+
         # Update text with frame number
         time_text.set_text(f"Frame {frame_idx:3d}/{len(frames_subset)-1} | Time = {data['time']:5.2f}")
-        
+
         for idx, var in enumerate(variables):
             ims[idx].set_array(to_cpu(data[var]).ravel())
-        
+
+        for i, ax in enumerate(axes):
+            if CONFIG['vec_panels'] == 'all' or i == _last:
+                vec_artists[i] = overlay_vectors(ax, data, polar=True, add_key=False,
+                                                 artists=vec_artists[i])
+
         return ims + [time_text]
     
     print("  Generating animation...")
@@ -951,6 +1504,65 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
     ani.save(output_video, fps=CONFIG['fps'], dpi=150)
     print(f"  Saved POLAR animation: {output_video}")
     plt.close()
+
+
+def create_vector_animation(available_frames, frames_dict, output_dir):
+    """The vector field alone, one large polar panel, over a muted density background.
+
+    The four-panel views are for reading fields against each other; this one exists to
+    actually look at the flow, so it gets the whole figure.
+    """
+    print("\nCreating VECTOR FIELD animation...")
+    start_idx = 0 if args.start_frame is None else available_frames.index(args.start_frame)
+    end_idx = (len(available_frames) if args.end_frame is None
+               else available_frames.index(args.end_frame) + 1)
+    frames_subset = available_frames[start_idx:end_idx:CONFIG['subsample']]
+    print(f"  Animation frames: {len(frames_subset)} (subsampled by {CONFIG['subsample']})")
+
+    bounds = (CONFIG['r_min'], CONFIG['r_max'], CONFIG['phi_min'], CONFIG['phi_max'])
+    first = filter_data_by_bounds(read_athena_2d(frames_dict[frames_subset[0]]), *bounds)
+    # frame 0 is the initial condition with v = 0; scale the arrows off a real one
+    ref = filter_data_by_bounds(read_athena_2d(frames_dict[frames_subset[-1]]), *bounds)
+
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111, projection='polar')
+    fig.suptitle(_ad.format_title("Velocity Field", args.title, time=0.0, cycle=0,
+                                  frame=0, base=(_ad.INFO or {}).get("base", ""),
+                                  plot="vector_animation"),
+                 fontsize=16, fontweight='bold')
+
+    rho = to_cpu(first['density'])
+    lo = np.percentile(rho[rho > 0], CONFIG['vmin_percentile']) if np.any(rho > 0) else None
+    hi = np.percentile(rho, CONFIG['vmax_percentile'])
+    bg = ax.pcolormesh(to_cpu(first['Phi']), to_cpu(first['R']), rho, cmap=VEC_BG_CMAP,
+                       shading='auto',
+                       norm=(LogNorm(vmin=lo, vmax=hi) if lo and lo > 0
+                             else Normalize(vmin=rho.min(), vmax=hi)))
+    cb = plt.colorbar(bg, ax=ax, pad=0.1, fraction=0.04)
+    cb.set_label(r'$\rho$', fontsize=11)
+    art = overlay_vectors(ax, first, polar=True, add_key=True, scale_from=ref)
+    ax.grid(True, alpha=0.3)
+    fig.text(0.5, 0.035, vector_caption(),
+             ha='center', fontsize=12)
+    time_text = fig.text(0.5, 0.93, '', ha='center', fontsize=12, fontweight='bold')
+
+    def update(k):
+        data = filter_data_by_bounds(read_athena_2d(frames_dict[frames_subset[k]]), *bounds)
+        time_text.set_text(f"Frame {k:3d}/{len(frames_subset)-1} | "
+                           f"Time = {data['time']:5.2f}")
+        bg.set_array(to_cpu(data['density']).ravel())
+        update.art = overlay_vectors(ax, data, polar=True, add_key=False,
+                                     artists=update.art)
+        return [bg, time_text]
+
+    update.art = art
+    ani = animation.FuncAnimation(fig, update, frames=len(frames_subset),
+                                  interval=1000 / CONFIG['fps'], blit=False)
+    out = os.path.join(output_dir, "velocity_field.mp4")
+    ani.save(out, fps=CONFIG['fps'], dpi=150)
+    print(f"  Saved VECTOR animation: {out}")
+    plt.close()
+
 
 # =============================================================================
 # MAIN FUNCTION
@@ -981,6 +1593,9 @@ def main():
             print(f"  Reading {len(file_list)} block(s)...")
         data = read_athena_2d(file_list)
         
+        if args.mode == 'vector_animation':
+            continue
+
         if args.mode in ['all', 'heatmaps']:
             plot_2d_heatmap(data, frame_num, output_dir)
         
@@ -1000,6 +1615,12 @@ def main():
     
     if args.mode == 'all' or args.mode == 'polar_animation' or args.animate:
         create_polar_animation(available_frames, frames_dict, output_dir)
+
+    if args.mode == 'vector_animation':
+        if not CONFIG.get('vectors'):
+            print("  (vector_animation implies --add-vectors)")
+            CONFIG['vectors'] = True
+        create_vector_animation(available_frames, frames_dict, output_dir)
     
     print("\n" + "="*80)
     print("DONE! All visualizations saved to:")
