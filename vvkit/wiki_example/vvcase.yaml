@@ -1,0 +1,39 @@
+version: 1
+name: athena_scalar_diff_cyl_2d
+
+solver:
+  type: athena++
+  template: athinput.scalar_diff.template
+  plugin_args:
+    athena_source: "/home/etrevol/athena-vvkit"
+    configure_args: ["--prob=scalar_diff", "--coord=cylindrical", "--nscalars=1"]
+    use_wsl: true
+    wsl_distro: Ubuntu
+    fields:
+      s0: u
+
+mms:
+  operator: "None"
+  solution: "1.0e-6 / (4.0*pi*0.001*(0.5 + 0.5)) * exp( -( (x*cos(y) - 0.5)**2 + (x*sin(y) - 0.5)**2 ) / (4.0*0.001*(0.5 + 0.5)) )"
+  symbols:
+    pi: 3.141592653589793
+  domain:
+    x: [0.1, 1.0]
+    y: [0.0, 6.283185307179586]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx
+    values: [64, 128, 256]
+  reference: cell_average
+  quadrature_order: 5
+  expected_order: 2.0
+  order_tolerance: 0.3
+  norms: [L1, L2]
+  exclude_boundary_cells: 0
+
+report:
+  formats: [html, json]
+  output_dir: reports/
