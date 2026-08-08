@@ -1,0 +1,58 @@
+<comment>
+problem   = M5 -- manufactured solution, 2D cylindrical Euler
+configure = --prob=acc_disk_mms --coord=cylindrical
+generated = rendered by vvkit from athinput.mms.template
+
+# The manufactured solution is steady, so the run should sit on it. tlim covers a couple
+# of sound-crossing times (c_s ~ 1.6, domain width 2) -- long enough that any transient
+# from the discrete initial state has settled, short enough to stay cheap.
+#
+# Square mesh in index space: vvkit builds the cell bounds for each coordinate from the
+# data, but the study refines a single parameter and both directions follow it.
+
+<job>
+problem_id = mms
+
+<output1>
+file_type   = tab         # output format
+variable    = prim        # rho, press, vel1, vel2, vel3
+dt          = 1.0         # dumps at t = 0 and t = tlim only
+data_format = %24.16e     # output format specifier
+
+<time>
+cfl_number = 0.4         # Courant, Friedrichs & Lewy number
+nlim       = -1          # cycle limit (-1 = unlimited)
+tlim       = 1.0         # time limit
+integrator = vl2         # time integration algorithm
+xorder     = 2           # order of spatial reconstruction
+ncycle_out = 1000000     # interval for stdout summary info
+
+<mesh>
+nx1    = {{ case.refinement_value | int }}   # number of zones in X1-direction
+x1min  = 1.0           # minimum value of X1
+x1max  = 3.0           # maximum value of X1
+x1rat  = 1.0           # ratio of adjacent cell widths in X1
+ix1_bc = user          # exact solution held in the ghost zones
+ox1_bc = user          # exact solution held in the ghost zones
+
+nx2    = {{ case.refinement_value | int }}   # number of zones in X2-direction
+x2min  = 0.0           # minimum value of X2
+x2max  = 6.28318530718 # maximum value of X2
+ix2_bc = periodic      # the manufactured solution is 2pi-periodic in phi
+ox2_bc = periodic      # inner-X2 boundary condition flag
+
+nx3    = 1             # number of zones in X3-direction
+x3min  = -0.5          # minimum value of X3
+x3max  = 0.5           # maximum value of X3
+ix3_bc = periodic      # inner-X3 boundary condition flag
+ox3_bc = periodic      # outer-X3 boundary condition flag
+
+<meshblock>
+nx1 = {{ case.refinement_value | int }}   # MeshBlock size in X1-direction
+nx2 = {{ case.refinement_value | int }}   # MeshBlock size in X2-direction
+nx3 = 1             # MeshBlock size in X3-direction
+
+<hydro>
+gamma  = 1.6666666666666667  # must match mms.symbols.g; the generator checks it
+dfloor = 1e-10         # density floor (the solution stays near 2, so this never fires)
+pfloor = 1e-10         # pressure floor

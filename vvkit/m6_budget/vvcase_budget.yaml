@@ -1,0 +1,68 @@
+# M6 -- does the torus's mass budget close?
+#
+#   d(disk_mass)/dt  ==  mdot_in - mdot_out
+#
+# This is the check a snapshot cannot do. A falling disk_mass on its own is ambiguous:
+# it could be accretion through the inner boundary, a leak through the outer one, or the
+# density floor quietly manufacturing and destroying material. Only the three columns
+# together separate them, which is exactly why the generator emits all three.
+#
+# UNITS. disk_mass is in solar masses, mdot_in/mdot_out in solar masses per YEAR, and
+# the time column is in code units. flux_scale converts: T_scale = 2.194125e9 s is
+# 69.5276112212 years, so one code time unit buys that many years of accretion.
+#
+# tolerance_mode: relative -- factor * |Q(t0)|. The round-off floor would be the right
+# bound for a quantity limited by arithmetic, but this one is limited by the boundary
+# treatment and by disk_mass's own threshold (it counts cells above 2*rho_atm, so a cell
+# crossing that threshold moves mass in or out of the total without any flux). 1e-4 of
+# the initial mass is the health criterion the project already uses over 100 orbits.
+version: 1
+name: m6_mass_budget
+
+solver:
+  type: athena++
+  template: athinput.budget.template
+  timeout_s: 21600.0
+  plugin_args:
+    executable: /home/etrevol/athena-vvkit/bin/athena_acc_disk
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out1"
+    fields:
+      rho: rho
+
+mms:
+  operator: "None"
+  solution: "Piecewise((((1.0/x - 0.5/x**2 - 0.2)/0.3)**3 + 0.0001, 1.0/x - 0.5/x**2 - 0.2 > 0), (0.0001, True))"
+  symbols: {}
+  domain:
+    x: [0.35, 5.55]
+    y: [0.0, 6.28318530718]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [64, 128, 256]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2]
+  exclude_boundary_cells: 4
+  expected_order: 2.0
+  order_tolerance: 0.5
+
+checks:
+  conservation:
+    - quantity: torus mass
+      history: disk_mass
+      flux_in: mdot_in
+      flux_out: mdot_out
+      time: time
+      flux_scale: 69.5276112212
+      tolerance_mode: relative
+      factor: 1.0e-4
+
+report:
+  formats: [html, json]
+  output_dir: reports/
