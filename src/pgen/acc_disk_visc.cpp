@@ -8,6 +8,7 @@
 // C++ headers
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -462,7 +463,6 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
       for (int i=is; i<=ie; ++i) {
         Real r     = pcoord->x1v(i);
         Real rho   = phydro->w(IDN,k,j,i);
-        Real press = phydro->w(IPR,k,j,i);
         Real v_phi = phydro->w(IVY,k,j,i);
 
         // Gravitational force per unit mass (radial)
@@ -472,23 +472,16 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
         Real f_centr = v_phi * v_phi / r;
 
         // Pressure gradient force per unit mass: -(1/rho) * dP/dr
-        Real dPdr;
-        if (i > is && i < ie) {
-          Real r_p = pcoord->x1v(i+1);
-          Real r_m = pcoord->x1v(i-1);
-          Real P_p = phydro->w(IPR,k,j,i+1);
-          Real P_m = phydro->w(IPR,k,j,i-1);
-          dPdr = (P_p - P_m) / (r_p - r_m);
-        } else if (i == is) {
-          Real r_p = pcoord->x1v(i+1);
-          Real P_p = phydro->w(IPR,k,j,i+1);
-          dPdr = (P_p - press) / (r_p - r);
-        } else {
-          Real r_m = pcoord->x1v(i-1);
-          Real P_m = phydro->w(IPR,k,j,i-1);
-          dPdr = (press - P_m) / (r - r_m);
-        }
-        Real f_press = -(1.0 / std::max(rho, rho_floor)) * dPdr;
+        // Ghost zones are filled before output, so the centred stencil is valid at is/ie
+        Real r_p = pcoord->x1v(i+1);
+        Real r_m = pcoord->x1v(i-1);
+        Real P_p = phydro->w(IPR,k,j,i+1);
+        Real P_m = phydro->w(IPR,k,j,i-1);
+        Real dPdr = (P_p - P_m) / (r_p - r_m);
+
+        // A cell on the floor reports NaN rather than a number computed from the floor
+        Real f_press = (rho > rho_floor) ? -dPdr / rho
+                                         : std::numeric_limits<Real>::quiet_NaN();
 
         // 4. Net radial force
         Real f_sum = f_grav + f_centr + f_press;
