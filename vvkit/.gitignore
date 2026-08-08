@@ -3,5 +3,5 @@
 workdir*/
 reports/
 # Transient console captures from a run.
-*_run*.log
+*.log
 tools/build.log
