@@ -646,9 +646,15 @@ Real OuterMassFlux(MeshBlock *pmb, int iout) {
 //----------------------------------------------------------------------------------------
 //! \brief Active cells sitting on the density floor, zero at every cycle in a healthy
 //!        run. Counted per cycle because a snapshot misses brief activations.
+//!
+//! The tolerance is 1e-6 and not round-off. The floor is imposed on the conserved
+//! energy, and the primitive comes back through E - e_kin; where the flow is cold and
+//! fast that subtraction loses digits, so a floored cell reports a few parts in 1e5
+//! above the floor. A round-off window misses it and the column reads zero while p_min
+//! sits pinned at pfloor - the counter denying what the margin is showing.
 Real CountDensityFloor(MeshBlock *pmb, int iout) {
   Real n = 0.0;
-  const Real cut = rho_floor * (1.0 + 1.0e-10);
+  const Real cut = rho_floor * (1.0 + 1.0e-6);
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
       for (int i=pmb->is; i<=pmb->ie; ++i) {
@@ -662,7 +668,7 @@ Real CountDensityFloor(MeshBlock *pmb, int iout) {
 //! \brief Active cells sitting on the pressure floor. See CountDensityFloor().
 Real CountPressureFloor(MeshBlock *pmb, int iout) {
   Real n = 0.0;
-  const Real cut = press_floor * (1.0 + 1.0e-10);
+  const Real cut = press_floor * (1.0 + 1.0e-6);
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
       for (int i=pmb->is; i<=pmb->ie; ++i) {
