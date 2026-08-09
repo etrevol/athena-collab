@@ -84,3 +84,4 @@ __pycache__/
 # Agent context files
 CLAUDE.md
 **/CLAUDE.md
+.claude/
