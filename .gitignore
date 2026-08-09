@@ -75,7 +75,12 @@ doc/doxy*
 !/scripts/practice
 !/scripts/theory
 !/scripts/vv
-/materials
+# The V&V plan is the one document that has to travel with the suite it describes;
+# git cannot un-ignore a file inside an ignored directory, hence the three steps.
+/materials/*
+!/materials/reports
+/materials/reports/*
+!/materials/reports/VV-PLAN.md
 /results
 .github
 .build_state
