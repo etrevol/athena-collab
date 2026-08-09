@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 # vvkit CLI wrapper.
 #
-# vvkit needs Python >= 3.12 and this WSL distro only has 3.10, so the CLI runs from the
+# vvkit needs Python >= 3.12 and this WSL distro has 3.10, so the CLI runs from the
 # Windows venv over interop. That is also the mode the plugin documents: the athena++
-# adapter is given use_wsl: true and shells back into WSL to build and run Athena++.
-# Windows accepts the \\wsl.localhost\... working directory, so relative paths in the
-# vvcase.yaml keep working from wherever this is invoked.
+# adapter is given use_wsl: true and shells back into WSL to run Athena++.
+#
+# ATHENA_ROOT is exported so the study configs can name binaries portably, as
+# ${ATHENA_ROOT}/bin/athena_..., instead of hardcoding one checkout. It is derived from
+# this script's own location, so the studies follow whichever tree they are checked out
+# in -- a worktree or the main one -- with nothing to edit.
+#
+# WSLENV is what carries it across: a plain export does NOT reach a Windows process
+# launched from WSL. No /p flag -- the adapter hands this path to wsl.exe, which wants
+# the Linux spelling, not the translated one.
+ATHENA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export ATHENA_ROOT
+export WSLENV="${WSLENV:+$WSLENV:}ATHENA_ROOT"
+
 exec /mnt/d/MyProjects/vvkit/.venv/Scripts/python.exe -m vvkit.cli.main "$@"

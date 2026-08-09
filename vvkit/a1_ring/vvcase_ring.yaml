@@ -28,7 +28,7 @@ solver:
   template: athinput.ring.template
   timeout_s: 7200.0
   plugin_args:
-    executable: /home/etrevol/athena-collab/bin/athena_visc_ring
+    executable: ${ATHENA_ROOT}/bin/athena_visc_ring
     use_wsl: true
     wsl_distro: Ubuntu
     output_stream: "out1"
