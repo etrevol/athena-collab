@@ -21,6 +21,7 @@ build() {  # build <prob> <output-binary-name>
 
 build acc_disk_visc_vv athena_acc_disk
 build visc_ring        athena_visc_ring
+build acc_disk_mms     athena_mms
 
 echo "ALL BUILDS OK"
 ls -la bin/
