@@ -107,11 +107,13 @@ CONFIG = {
 }
 
 # Colors for the three forces (consistent throughout)
+# One palette across every script, from pypalettes; see athena_data.line_colors.
+_FC = _ad.line_colors(4, quiet=True)
 FORCE_COLORS = {
-    'f_grav':  '#d62728',   # Red   — gravity (inward)
-    'f_centr': '#1f77b4',   # Blue  — centrifugal (outward)
-    'f_press': '#2ca02c',   # Green — pressure gradient
-    'f_sum':   '#ff7f0e',   # Orange — net force
+    'f_grav':  _FC[0],      # gravity (inward)
+    'f_centr': _FC[1],      # centrifugal (outward)
+    'f_press': _FC[2],      # pressure gradient
+    'f_sum':   _FC[3],      # net force
 }
 
 FORCE_LABELS = {

@@ -86,28 +86,31 @@ CONFIG = {
     'logscale': False,
 }
 
+# Shared categorical palette; see athena_data.line_colors.
+_LC = _ad.line_colors(4, quiet=True)
+
 VARIABLE_INFO = {
     'density': {
         'label': r'Density $\rho$',
-        'color': 'red',
+        'color': _LC[0],
         'marker': 'o',
         'linestyle': '-',
     },
     'pressure': {
         'label': r'Pressure $P$',
-        'color': 'blue',
+        'color': _LC[1],
         'marker': 's',
         'linestyle': '-',
     },
     'vel_r': {
         'label': r'Radial Velocity $v_r$',
-        'color': 'green',
+        'color': _LC[2],
         'marker': '^',
         'linestyle': '-',
     },
     'vel_phi': {
         'label': r'Azimuthal Velocity $v_\phi$',
-        'color': 'purple',
+        'color': _LC[3],
         'marker': 'd',
         'linestyle': '-',
     },
