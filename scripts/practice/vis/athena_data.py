@@ -5,12 +5,16 @@ one output format and to a fixed column layout. This module puts a single reader
 front of them, so the same command works on `.athdf` and on `.tab`, and the calling
 code no longer knows or cares which it got.
 
-Reading itself is delegated to `vis/python/athena_read.py`, which ships with
-Athena++ and already handles the awkward parts: mesh refinement, multiple
-MeshBlocks, byte-string attributes, both file formats. There is no reason to
-re-implement any of that here.
+.tab is what every run in this project actually produces, and reading it needs
+nothing beyond numpy. .athdf support is kept but entirely lazy: locating and
+importing `vis/python/athena_read.py` (Athena++'s own reader, not duplicated
+here) only happens inside `_read_athdf`, the first time an .athdf file is
+actually read. `import athena_data` and a pure-.tab session therefore never pay
+for it - that lookup walks the directory tree and the import itself measured
+~90ms, pure overhead when every file in sight ends in .tab.
 
-What this module adds on top is the bookkeeping the plotting scripts need:
+What this module adds on top of parsing one file is the bookkeeping the plotting
+scripts need:
 
   * discovering which frames exist in a directory, for a given output id;
   * choosing a format when both are present (`.athdf` wins - one file per frame
@@ -30,36 +34,42 @@ import sys
 
 import numpy as np
 
-# athena_read.py ships with Athena++ in vis/python/. Walk up from this file and from
-# the working directory so the module also works when copied into a run directory.
 _HERE = os.path.dirname(os.path.abspath(__file__))
+_athena_read = None                     # populated by _load_athena_read(), once
 
 
-def _find_athena_read():
+def _load_athena_read():
+    """Locate and import vis/python/athena_read.py, on first .athdf read only."""
+    global _athena_read
+    if _athena_read is not None:
+        return _athena_read
     for start in (_HERE, os.getcwd()):
         p = start
         for _ in range(10):
             cand = os.path.join(p, "vis", "python")
             if os.path.isfile(os.path.join(cand, "athena_read.py")):
-                return cand
+                found = cand
+                break
             if os.path.isfile(os.path.join(p, "athena_read.py")):
-                return p
+                found = p
+                break
             parent = os.path.dirname(p)
             if parent == p:
                 break
             p = parent
-    return None
-
-
-_ar = _find_athena_read()
-if _ar is None:                                                # pragma: no cover
-    raise ImportError(
-        "athena_read.py not found. It ships with Athena++ in vis/python/. Run from "
-        "inside the repository, or copy athena_read.py next to this file.")
-if _ar not in sys.path:
-    sys.path.insert(0, _ar)
-
-import athena_read  # noqa: E402
+        else:
+            continue
+        break
+    else:
+        raise ImportError(
+            "athena_read.py not found. It ships with Athena++ in vis/python/. Run "
+            "from inside the repository, or copy athena_read.py next to this file. "
+            "(.tab files need none of this - this is only reached for .athdf.)")
+    if found not in sys.path:
+        sys.path.insert(0, found)
+    import athena_read as _ar_module
+    _athena_read = _ar_module
+    return _athena_read
 
 
 # ---------------------------------------------------------------------------
@@ -130,22 +140,33 @@ def discover(data_dir, output_id=1, prefer=None):
     a_frames, a_bases, _ = _collect(athdf_re, ".athdf")
     t_frames, t_bases, t_blocks = _collect(tab_re, ".tab")
 
-    if prefer == "athdf" or (prefer is None and a_frames):
+    # The format check above is a directory listing plus two regexes - it happens
+    # before anything else and costs nothing, whichever format turns out to be
+    # present. What used to be expensive was importing athena_read.py, and that
+    # is now lazy (see _load_athena_read): choosing "athdf" here does not pay
+    # for it either, only actually reading an .athdf file does.
+    #
+    # Preference when both exist: tab. Every run in this project produces .tab;
+    # .athdf only shows up if HDF5 output was enabled by hand, and there is no
+    # reason to prefer the format this project does not use.
+    if prefer == "tab" or (prefer is None and t_frames):
+        if not t_frames:
+            raise FileNotFoundError(f"no .tab files for out{oid} in {data_dir}")
+        return {"format": "tab", "base": sorted(t_bases)[0],
+                "frames": t_frames, "nblocks": len(t_blocks)}
+
+    if prefer == "athdf" or a_frames:
         if not a_frames:
-            raise FileNotFoundError(
-                f"no .athdf files for out{oid} in {data_dir}")
+            raise FileNotFoundError(f"no .athdf files for out{oid} in {data_dir}")
         return {"format": "athdf", "base": sorted(a_bases)[0],
                 "frames": a_frames, "nblocks": 1}
 
-    if not t_frames:
-        raise FileNotFoundError(
-            f"no .athdf or .tab files for out{oid} in {data_dir}.\n"
-            f"        Enable HDF5 output in the input file:\n"
-            f"            <output{oid}>\n"
-            f"            file_type = hdf5\n"
-            f"        and configure Athena++ with -hdf5.")
-    return {"format": "tab", "base": sorted(t_bases)[0],
-            "frames": t_frames, "nblocks": len(t_blocks)}
+    raise FileNotFoundError(
+        f"no .athdf or .tab files for out{oid} in {data_dir}.\n"
+        f"        Enable HDF5 output in the input file:\n"
+        f"            <output{oid}>\n"
+        f"            file_type = hdf5\n"
+        f"        and configure Athena++ with -hdf5.")
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +174,7 @@ def discover(data_dir, output_id=1, prefer=None):
 # ---------------------------------------------------------------------------
 
 def _read_athdf(path):
-    d = athena_read.athdf(path)
+    d = _load_athena_read().athdf(path)
     varnames = [_dec(v) for v in d["VariableNames"]]
     out = {
         "time": float(d["Time"]),
@@ -168,17 +189,60 @@ def _read_athdf(path):
     return out
 
 
+def _read_tab_file(path):
+    """One .tab block, parsed with nothing but numpy - no athena_read.py involved.
+
+    Deliberately narrower than athena_read.tab(): 1D and 2D only (3D never occurs
+    in this project's 2D cylindrical setup), and it assumes what every file this
+    pgen writes has - i fastest, j slower, i.e. row-major (nj, ni) once reshaped.
+    Returns the same shape convention athena_read.tab() used to (x1v/x2v as full
+    (nj, ni) grids for a 2D dump, redundant along the other axis), so the block-
+    joining code below did not have to change, only where the bytes come from.
+    """
+    with open(path) as fh:
+        header1 = fh.readline()
+        header2 = fh.readline()
+    m = re.search(r"time=(\S+)\s+cycle=(\S+)\s+variables=(\S+)", header1)
+    if not m:
+        raise ValueError(f"{path}: could not parse the time/cycle header line")
+    time, cycle = float(m.group(1)), int(m.group(2))
+    headings = header2.split()[1:]                    # drop the leading '#'
+
+    data = np.loadtxt(path, skiprows=2)
+    if data.ndim == 1:                                  # a single-row file
+        data = data[None, :]
+
+    if headings[0] == "i" and headings[2] == "j":
+        names = headings[1:2] + headings[3:]
+        i_col, j_col = data[:, 0].astype(int), data[:, 2].astype(int)
+        cols = np.concatenate([data[:, 1:2], data[:, 3:]], axis=1)
+        ni, nj = i_col.max() - i_col.min() + 1, j_col.max() - j_col.min() + 1
+        out = {"time": time, "cycle": cycle}
+        for n, name in enumerate(names):
+            out[name] = cols[:, n].reshape(nj, ni)
+        return out
+
+    if headings[0] in ("i", "j", "k"):                  # 1D
+        names = headings[1:]
+        out = {"time": time, "cycle": cycle}
+        for n, name in enumerate(names):
+            out[name] = data[:, n + 1]
+        return out
+
+    raise ValueError(f"{path}: unrecognised column header {header2!r}")
+
+
 def _read_tab_blocks(paths):
     """Read one frame from one or more .tab blocks and join them.
 
-    Note on the layout athena_read.tab() returns: for a 2D dump `x1v` and `x2v`
-    come back as full (nx2, nx1) arrays, not as the two 1D axes. Flattening them
-    would give nx1*nx2 "coordinates" and silently corrupt the join, so the axes
-    are taken as x1v[0, :] and x2v[:, 0].
+    Note on the layout _read_tab_file returns: for a 2D dump `x1v` and `x2v` come
+    back as full (nx2, nx1) arrays, not as the two 1D axes. Flattening them would
+    give nx1*nx2 "coordinates" and silently corrupt the join, so the axes are
+    taken as x1v[0, :] and x2v[:, 0].
     """
     blocks = []
     for p in paths:
-        d = athena_read.tab(p)
+        d = _read_tab_file(p)
         x1 = np.asarray(d["x1v"])
         x2 = np.asarray(d["x2v"]) if "x2v" in d else None
         if x1.ndim == 2:                       # 2D block
