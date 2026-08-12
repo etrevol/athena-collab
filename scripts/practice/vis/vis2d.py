@@ -43,6 +43,27 @@ OPTIONS:
                               Use percentiles to filter extreme outliers and
                               improve color contrast during normal evolution
 
+MODEL ANNOTATION (animations):
+    --info SPEC      - a preset (none|default|min|orbits|physics|full) or a comma
+                       list of keys: alpha, nu_iso, gamma, grid, C_prime, r_center,
+                       rho_atm, hr, N_orbits, M_bh, T_0, mu, chi.
+                       Default: alpha,gamma,grid,C_prime,r_center
+    --info_pos       - box (default, corner, one item per line) | footer | subtitle
+    --info_on        - polar (default, only the polar animation) | all
+    --params FILE    - athinput to read from. Default: search beside the data and
+                       upwards; if none is found the annotation is silently omitted,
+                       which is the normal case for runs under results/runs
+    The frame counter also reports orbits whenever P_orb could be derived.
+
+COLOUR:
+    --palette NAME   - pypalettes name for categorical LINE colours. The 2D scalar
+                       maps are untouched: inferno/plasma are perceptually uniform
+                       and RdBu_r/coolwarm are properly diverging, while most library
+                       palettes are neither. A weak choice is reported, not silently
+                       accepted - of 2707 palettes only 124 clear the colourblind
+                       gate and none clears every gate
+    --cmap_palette NAME - opt in to replacing the 2D maps as well
+
 VECTOR OVERLAY (entirely off unless --add-vectors is given, so every existing
 command keeps producing exactly what it did before):
     --add-vectors    - draw the vector field. By default only on the bottom-right
@@ -268,6 +289,28 @@ parser.add_argument("--vmax_percentile", type=float, default=98.0,
                     help="Upper percentile for color scale (default: 98.0, filters extreme high values)")
 parser.add_argument("--add-vectors", dest="vectors", action="store_true",
                     help="Overlay the vector field (off by default)")
+parser.add_argument("--palette", default=None,
+                    help="pypalettes name for categorical LINE colours (default: %s). "
+                         "The 2D scalar maps are unaffected" % _ad.PALETTE_DEFAULT)
+parser.add_argument("--cmap_palette", default=None,
+                    help="Optional: replace the 2D scalar colormaps with a continuous "
+                         "pypalettes map. Off by default, because inferno/plasma are "
+                         "perceptually uniform and most library palettes are not")
+parser.add_argument("--info", default="default",
+                    help="Model parameters annotated on animations: a preset "
+                         "(none|default|min|orbits|physics|full) or a comma-separated "
+                         "list of keys (%s). Default: %s"
+                         % (",".join(sorted(_ad.INFO_KEYS)),
+                            ",".join(_ad.INFO_PRESETS["default"])))
+parser.add_argument("--info_pos", default="box",
+                    choices=["footer", "subtitle", "box"],
+                    help="Where that annotation goes (default: box)")
+parser.add_argument("--info_on", default="polar", choices=["polar", "all"],
+                    help="Which animations carry it. polar: only the polar animation, "
+                         "which is the one with room for it. all: every animation")
+parser.add_argument("--params", default=None,
+                    help="athinput to read the parameters from (default: search beside "
+                         "the data, then upwards)")
 parser.add_argument("--vec_field", default="velocity", choices=["velocity", "momentum"],
                     help="Vector quantity: velocity (v_r, v_phi) or momentum (rho*v)")
 parser.add_argument("--vec_comp", default="both",
@@ -343,6 +386,9 @@ CONFIG['vmin_percentile'] = args.vmin_percentile
 CONFIG['vmax_percentile'] = args.vmax_percentile
 CONFIG['normalize'] = args.normalize
 CONFIG['vectors'] = args.vectors
+CONFIG['palette'] = args.palette
+CONFIG['info_pos'] = args.info_pos
+CONFIG['info_on'] = args.info_on
 CONFIG['vec_field'] = args.vec_field
 CONFIG['vec_comp'] = args.vec_comp
 CONFIG['vec_frame'] = args.vec_frame
@@ -383,6 +429,72 @@ if args.phi_min is not None or args.phi_max is not None:
     phi_range = f"φ: [{args.phi_min if args.phi_min is not None else 'auto'}:{args.phi_max if args.phi_max is not None else 'auto'}] rad"
     print(f"Azimuthal range: {phi_range}")
 print(f"Color scale percentiles: [{args.vmin_percentile}, {args.vmax_percentile}]")
+
+# Model annotation. A run with no athinput beside it simply gets none: results/runs
+# keeps only data/, and a missing file is not an error.
+INFO_LINES, INFO_P_ORB = [], None
+if args.info != "none":
+    _ath = _ad.find_athinput(data_dir, args.params)
+    if _ath:
+        INFO_LINES, INFO_P_ORB = _ad.model_info(_ad.read_athinput(_ath), args.info)
+        print(f"Model info: {args.info} ({args.info_pos}) from {os.path.basename(_ath)}")
+    else:
+        print("Model info: requested, but no athinput found next to the data; omitted")
+
+# The 2D colormaps are replaced only on request; see --cmap_palette.
+if args.cmap_palette:
+    try:
+        from pypalettes import load_cmap as _load_cmap
+        _cm = _load_cmap(args.cmap_palette, cmap_type="continuous")
+        for _vi in VARIABLE_INFO.values():
+            _vi["cmap"] = _cm
+        print(f"2D colormaps replaced by pypalettes '{args.cmap_palette}'")
+    except Exception as _exc:
+        print(f"  note: --cmap_palette '{args.cmap_palette}' unusable ({_exc}); "
+              f"keeping the defaults")
+
+
+def info_footer_height(plot="polar"):
+    """Vertical room the footer annotation needs, so captions can sit above it."""
+    if (not INFO_LINES or CONFIG["info_pos"] != "footer"
+            or (CONFIG["info_on"] == "polar" and plot != "polar")):
+        return 0.0
+    return 0.020 + 0.022 * len(INFO_LINES)
+
+
+def draw_model_info(fig, below=0.0, plot="polar"):
+    """Place INFO_LINES per --info_pos. Returns the bottom margin to reserve.
+
+    `below` lifts the footer clear of whatever already occupies the bottom of the
+    figure - the arrow caption sits at y=0.012 and the two collided otherwise."""
+    # --info_on polar keeps it to the polar animation, the one with room for it.
+    if not INFO_LINES or (CONFIG["info_on"] == "polar" and plot != "polar"):
+        return 0.0
+    txt = "\n".join(INFO_LINES)
+    pos = CONFIG["info_pos"]
+    if pos == "subtitle":
+        fig.text(0.5, 0.928, txt, ha="center", va="top", fontsize=9, color="#3c3c3a")
+        return 0.0
+    if pos == "box":
+        # One item per line. Joined into rows the box grows wide enough to reach the
+        # centred title; stacked, it stays in the corner whatever the parameter set.
+        stacked = "\n".join(item for line in INFO_LINES
+                             for item in line.split("   ") if item)
+        fig.text(0.012, 0.988, stacked, ha="left", va="top", fontsize=8.5,
+                 color="#1a1a19", linespacing=1.5,
+                 bbox=dict(boxstyle="round", fc="white", ec="#b8b8b4", alpha=0.9))
+        return 0.0
+    fig.text(0.5, 0.012 + below, txt, ha="center", va="bottom", fontsize=9,
+             color="#3c3c3a")
+    return 0.035 + below + 0.022 * (len(INFO_LINES) - 1)
+
+
+def frame_label(idx, total, time):
+    """Frame counter; adds orbits when P_orb could be derived."""
+    base = f"Frame {idx:3d}/{total} | Time = {time:5.2f}"
+    if INFO_P_ORB:
+        base += f"  ({time / INFO_P_ORB:.1f} orbits)"
+    return base
 
 # =============================================================================
 # FILE PARSING AND GROUPING
@@ -1061,20 +1173,21 @@ def plot_radial_profiles(data, frame_num, output_dir):
     r = data['r']
     
     # Average over phi
+    _c = _ad.line_colors(4, CONFIG.get('palette'))
     variables = [
-        ('density', axes[0, 0], 'r-', r'$\langle\rho\rangle_\phi$'),
-        ('pressure', axes[0, 1], 'g-', r'$\langle P\rangle_\phi$'),
-        ('vel_r', axes[1, 0], 'b-', r'$\langle v_r\rangle_\phi$'),
-        ('vel_phi', axes[1, 1], 'm-', r'$\langle v_\phi\rangle_\phi$'),
+        ('density', axes[0, 0], _c[0], r'$\langle\rho\rangle_\phi$'),
+        ('pressure', axes[0, 1], _c[1], r'$\langle P\rangle_\phi$'),
+        ('vel_r', axes[1, 0], _c[2], r'$\langle v_r\rangle_\phi$'),
+        ('vel_phi', axes[1, 1], _c[3], r'$\langle v_\phi\rangle_\phi$'),
     ]
     
     for var, ax, color, label in variables:
         # Use GPU for statistics if available
         var_avg, var_std = compute_statistics(data[var], axis=0)
         
-        ax.plot(r, var_avg, color, linewidth=2, label=label)
-        ax.fill_between(r, var_avg - var_std, var_avg + var_std, 
-                        alpha=0.3, color=color[0])
+        ax.plot(r, var_avg, color=color, linewidth=2, label=label)
+        ax.fill_between(r, var_avg - var_std, var_avg + var_std,
+                        alpha=0.25, color=color)
         ax.set_xlabel('r', fontsize=11)
         ax.set_ylabel(label, fontsize=11)
         ax.legend(fontsize=10)
@@ -1160,7 +1273,7 @@ def plot_azimuthal_profiles(data, frame_num, output_dir):
     
     # Select several radii
     r_indices = [len(r)//4, len(r)//2, 3*len(r)//4]
-    colors = ['r', 'g', 'b']
+    colors = _ad.line_colors(3, CONFIG.get('palette'))
     
     variables = [
         ('density', axes[0, 0], r'$\rho$'),
@@ -1327,7 +1440,7 @@ def create_animation(available_frames, frames_dict, output_dir):
                                       CONFIG['phi_min'], CONFIG['phi_max'])
 
         # Update text with frame number
-        time_text.set_text(f"Frame {frame_idx:3d}/{len(frames_subset)-1} | Time = {data['time']:5.2f}")
+        time_text.set_text(frame_label(frame_idx, len(frames_subset)-1, data['time']))
 
         for idx, var in enumerate(variables):
             ims[idx].set_array(to_cpu(data[var]).ravel())
@@ -1346,6 +1459,9 @@ def create_animation(available_frames, frames_dict, output_dir):
     ani = animation.FuncAnimation(fig, update, frames=len(frames_subset),
                                  interval=1000/CONFIG['fps'], blit=False)
     
+    _margin = draw_model_info(fig, plot="cartesian")
+    if _margin:
+        fig.subplots_adjust(bottom=max(0.10, _margin + 0.06))
     output_video = os.path.join(output_dir, "disk_evolution_2d.mp4")
     ani.save(output_video, fps=CONFIG['fps'], dpi=150)
     print(f"  Saved Cartesian animation: {output_video}")
@@ -1471,7 +1587,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
     # Add frame number to text
     time_text = fig.text(0.5, 0.94, '', ha='center', fontsize=12, fontweight='bold')
     if CONFIG.get('vectors'):
-        fig.text(0.5, 0.015, vector_caption(),
+        fig.text(0.5, 0.015 + info_footer_height("polar"), vector_caption(),
                  ha='center', fontsize=11)
 
     def update(frame_idx):
@@ -1483,7 +1599,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
                                       CONFIG['phi_min'], CONFIG['phi_max'])
 
         # Update text with frame number
-        time_text.set_text(f"Frame {frame_idx:3d}/{len(frames_subset)-1} | Time = {data['time']:5.2f}")
+        time_text.set_text(frame_label(frame_idx, len(frames_subset)-1, data['time']))
 
         for idx, var in enumerate(variables):
             ims[idx].set_array(to_cpu(data[var]).ravel())
@@ -1499,7 +1615,8 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
     ani = animation.FuncAnimation(fig, update, frames=len(frames_subset),
                                  interval=1000/CONFIG['fps'], blit=False)
     
-    plt.tight_layout(rect=(0, 0, 1, 0.97))  # Leave space for title and text
+    _margin = draw_model_info(fig, plot="polar")
+    plt.tight_layout(rect=(0, _margin, 1, 0.97))  # title, frame counter, model info
     output_video = os.path.join(output_dir, "disk_evolution_polar.mp4")
     ani.save(output_video, fps=CONFIG['fps'], dpi=150)
     print(f"  Saved POLAR animation: {output_video}")
@@ -1542,20 +1659,20 @@ def create_vector_animation(available_frames, frames_dict, output_dir):
     cb.set_label(r'$\rho$', fontsize=11)
     art = overlay_vectors(ax, first, polar=True, add_key=True, scale_from=ref)
     ax.grid(True, alpha=0.3)
-    fig.text(0.5, 0.035, vector_caption(),
+    fig.text(0.5, 0.035 + info_footer_height("vector"), vector_caption(),
              ha='center', fontsize=12)
     time_text = fig.text(0.5, 0.93, '', ha='center', fontsize=12, fontweight='bold')
 
     def update(k):
         data = filter_data_by_bounds(read_athena_2d(frames_dict[frames_subset[k]]), *bounds)
-        time_text.set_text(f"Frame {k:3d}/{len(frames_subset)-1} | "
-                           f"Time = {data['time']:5.2f}")
+        time_text.set_text(frame_label(k, len(frames_subset)-1, data['time']))
         bg.set_array(to_cpu(data['density']).ravel())
         update.art = overlay_vectors(ax, data, polar=True, add_key=False,
                                      artists=update.art)
         return [bg, time_text]
 
     update.art = art
+    draw_model_info(fig, plot="vector")
     ani = animation.FuncAnimation(fig, update, frames=len(frames_subset),
                                   interval=1000 / CONFIG['fps'], blit=False)
     out = os.path.join(output_dir, "velocity_field.mp4")

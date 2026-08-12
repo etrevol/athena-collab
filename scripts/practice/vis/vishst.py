@@ -294,7 +294,7 @@ def plot_variable(time, var_data, var_name, output_dir, linear_scale=False):
         color = info['color']
     else:
         label = var_name
-        color = 'steelblue'
+        color = _ad.line_colors(1, quiet=True)[0]
     
     # Plot
     ax.plot(time, var_data, 
@@ -386,7 +386,7 @@ def plot_multiple_variables(time, data_dict, var_names, output_dir, linear_scale
             color = info['color']
         else:
             label = var_name
-            color = 'steelblue'
+            color = _ad.line_colors(1, quiet=True)[0]
         
         # Plot
         ax.plot(time, var_data,
@@ -423,7 +423,7 @@ def plot_disk_mass_and_mdot(time, disk_mass, mdot_in, output_dir):
     fig, ax1 = plt.subplots(figsize=CONFIG['figsize'], dpi=CONFIG['dpi'])
     
     # Plot disk mass on left axis
-    color1 = 'darkred'
+    color1 = _ad.line_colors(2, quiet=True)[0]
     ax1.set_xlabel('Time', fontsize=12, fontweight='bold')
     ax1.set_ylabel(r'Disk Mass [$M_\odot$]', fontsize=12, fontweight='bold', color=color1)
     line1 = ax1.plot(time, disk_mass, 
@@ -438,7 +438,7 @@ def plot_disk_mass_and_mdot(time, disk_mass, mdot_in, output_dir):
     
     # Plot accretion rate on right axis
     ax2 = ax1.twinx()
-    color2 = 'darkgreen'
+    color2 = _ad.line_colors(2, quiet=True)[1]
     ax2.set_ylabel(r'Accretion Rate [$M_\odot$/yr]', fontsize=12, fontweight='bold', color=color2)
     line2 = ax2.plot(time, mdot_in,
                      linewidth=CONFIG['linewidth'],

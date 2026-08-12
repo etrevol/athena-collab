@@ -399,3 +399,283 @@ def default_data_dir(start=None):
                 glob.glob(os.path.join(p, "*.athdf")) or glob.glob(os.path.join(p, "*.tab"))):
             return p
     return os.path.abspath(os.path.join(base, "data"))
+
+
+# =============================================================================
+# COLOUR PALETTES  (pypalettes, https://python-graph-gallery.com/color-palette-finder/)
+# =============================================================================
+# Categorical LINE colours only. The 2D scalar maps stay on inferno/plasma/RdBu_r:
+# those are perceptually uniform or properly diverging, and swapping them for an
+# artistic palette would misrepresent the data rather than merely look different.
+#
+# Measured over all 2707 pypalettes entries, discrete sets of 4-6 colours:
+#   colourblind separation (OKLab dE >= 8 under protanopia/deuteranopia)
+#   plus mutual separation >= 15                          ->  124 pass
+#   ... and no near-black or near-white member            ->    8 pass
+#   ... and WCAG contrast >= 3 against white              ->    5 pass, all of them
+#                                                              sports-team palettes
+#   ... and inside the light-mode lightness band          ->    0 pass
+# Sampling the continuous maps at 5 points also yields 0, which is expected: points
+# taken along one ramp are similar to each other by construction.
+#
+# So the library has no drop-in categorical set for line plots on white. The default
+# below is the best available compromise rather than a clean pass, and check_palette()
+# reports where any chosen palette sits so a poor pick is visible instead of silent.
+PALETTE_DEFAULT = "Bold"          # 5 colours, colourblind dE 9.0, separation 17.0
+PALETTE_FALLBACK = ["#6497B1", "#6A359C", "#FFB04F", "#679C35", "#CD1076",
+                    "#0F7BA2", "#DD5129", "#43B284"]
+_PALETTE_WARNED = set()
+
+
+def _srgb_to_linear(hex_colour):
+    h = hex_colour.lstrip("#")[:6]
+    out = []
+    for i in (0, 2, 4):
+        c = int(h[i:i + 2], 16) / 255.0
+        out.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+    return out
+
+
+def _oklab(rgb):
+    r, g, b = rgb
+    def cbrt(v):
+        return max(v, 0.0) ** (1.0 / 3.0)
+    l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+    m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+    s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+    return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+
+
+_CVD = {"protan": ((0.152286, 1.052583, -0.204868), (0.114503, 0.786281, 0.099216),
+                   (-0.003882, -0.048116, 1.051998)),
+        "deutan": ((0.367322, 0.860646, -0.227968), (0.280085, 0.672501, 0.047413),
+                   (-0.011820, 0.042940, 0.968881))}
+
+
+def _delta_e(a, b, kind=None):
+    def prep(c):
+        rgb = _srgb_to_linear(c)
+        if kind:
+            M = _CVD[kind]
+            rgb = [min(1.0, max(0.0, sum(M[i][j] * rgb[j] for j in range(3))))
+                   for i in range(3)]
+        return _oklab(rgb)
+    p, q = prep(a), prep(b)
+    return 100.0 * sum((p[i] - q[i]) ** 2 for i in range(3)) ** 0.5
+
+
+def check_palette(colours):
+    """(min colourblind dE, min separation, min contrast vs white) for a colour list."""
+    pairs = [(i, j) for i in range(len(colours)) for j in range(i + 1, len(colours))]
+    if not pairs:
+        return (float("inf"),) * 3
+    cvd = min(min(_delta_e(colours[i], colours[j], "protan"),
+                  _delta_e(colours[i], colours[j], "deutan")) for i, j in pairs)
+    sep = min(_delta_e(colours[i], colours[j]) for i, j in pairs)
+    con = min(1.05 / (0.2126 * r + 0.7152 * g + 0.0722 * b + 0.05)
+              for r, g, b in (_srgb_to_linear(c) for c in colours))
+    return cvd, sep, con
+
+
+def line_colors(n, name=None, quiet=False):
+    """n categorical colours from a pypalettes palette, with the checks reported.
+
+    Falls back to a built-in list when pypalettes is absent, so the scripts keep
+    working without the dependency.
+    """
+    name = name or PALETTE_DEFAULT
+    colours = None
+    try:
+        from pypalettes import load_cmap
+        colours = [c[:7] for c in load_cmap(name).hex]
+    except ImportError:
+        if not quiet and "nolib" not in _PALETTE_WARNED:
+            _PALETTE_WARNED.add("nolib")
+            print("  note: pypalettes is not installed, using the built-in palette "
+                  "(pip install pypalettes)")
+    except Exception as exc:
+        if not quiet and name not in _PALETTE_WARNED:
+            _PALETTE_WARNED.add(name)
+            print(f"  note: palette '{name}' not found ({exc}); using the built-in one")
+    if not colours:
+        colours = list(PALETTE_FALLBACK)
+
+    if not quiet and name not in _PALETTE_WARNED:
+        cvd, sep, con = check_palette(colours[:max(n, 2)])
+        # Contrast is judged at 1.5, not the WCAG text figure of 3: these are 2px
+        # lines rather than body text, and no palette in the library clears 3 anyway.
+        if cvd < 8.0 or sep < 15.0 or con < 1.5:
+            _PALETTE_WARNED.add(name)
+            print(f"  note: palette '{name}' is weak for line plots "
+                  f"(colourblind dE {cvd:.1f}, need 8; separation {sep:.1f}, need 15; "
+                  f"contrast {con:.1f}, need 1.5). It will still be used.")
+    if n <= len(colours):
+        return colours[:n]
+    return [colours[i % len(colours)] for i in range(n)]   # cycles; avoid if you can
+
+
+# =============================================================================
+# MODEL PARAMETERS FOR FIGURE ANNOTATION
+# =============================================================================
+# Sweep runs keep athinput.in beside the data; plain runs under results/runs keep
+# only data/. So the search is a chain and a miss is not an error - the annotation
+# is simply omitted.
+
+def find_athinput(data_dir, explicit=None):
+    """Path to the athinput governing this run, or None. Never raises."""
+    if explicit:
+        return explicit if os.path.isfile(explicit) else None
+    here = os.path.abspath(data_dir or ".")
+    for _ in range(4):
+        for cand in ("athinput.in", "athinput.txt"):
+            p = os.path.join(here, cand)
+            if os.path.isfile(p):
+                return p
+        hits = sorted(h for h in glob.glob(os.path.join(here, "athinput.*"))
+                      if not h.endswith((".log", ".png", ".mp4")))
+        if hits:
+            return hits[0]
+        parent = os.path.dirname(here)
+        if parent == here:
+            break
+        here = parent
+    return None
+
+
+def read_athinput(path):
+    """{'block/key': 'value'} from an athinput. Empty dict on any problem."""
+    out, block = {}, None
+    try:
+        with open(path) as fh:
+            for line in fh:
+                line = line.split("#")[0].strip()
+                if not line:
+                    continue
+                if line.startswith("<") and line.endswith(">"):
+                    block = line[1:-1]
+                elif "=" in line:
+                    k, v = line.split("=", 1)
+                    out[f"{block}/{k.strip()}"] = v.strip()
+    except OSError:
+        return {}
+    return out
+
+
+def _num(params, key, default=None):
+    try:
+        return float(params[key])
+    except (KeyError, ValueError, TypeError):
+        return default
+
+
+INFO_KEYS = {
+    # key          label                     athinput lookup / derived
+    "alpha":     (r"$\alpha$",              "problem/alpha"),
+    "nu_iso":    (r"$\nu_{\rm iso}$",        "problem/nu_iso"),
+    "gamma":     (r"$\gamma$",               "hydro/gamma"),
+    "C_prime":   ("C'",                      "problem/C_prime"),
+    "r_center":  (r"$r_c$",                  "problem/r_center"),
+    "rho_atm":   (r"$\rho_{\rm atm}$",       "problem/rho_atm"),
+    "M_bh":      (r"$M_{\rm BH}$",           "problem/M_bh"),
+    "T_0":       (r"$T_0$",                  "problem/T_0"),
+    "mu":        (r"$\mu$",                  "problem/mu"),
+    "chi":       (r"$\chi$",                 "problem/chi"),
+    "grid":      ("grid",                    None),      # nx1 x nx2
+    "hr":        ("H/r",                     None),      # derived
+    "N_orbits":  ("orbits to accrete",       None),      # derived
+}
+
+INFO_PRESETS = {
+    "none":    [],
+    "default": ["alpha", "gamma", "grid", "C_prime", "r_center"],
+    "min":     ["alpha", "nu_iso", "gamma", "grid"],
+    "orbits":  ["alpha", "nu_iso", "gamma", "grid"],
+    "physics": ["alpha", "nu_iso", "gamma", "grid",
+                "C_prime", "r_center", "rho_atm", "hr", "N_orbits"],
+    "full":    ["alpha", "nu_iso", "gamma", "grid",
+                "C_prime", "r_center", "rho_atm", "hr", "N_orbits",
+                "M_bh", "T_0", "mu", "chi"],
+}
+# Presets that also want the frame counter expressed in orbits.
+INFO_WITH_ORBITS = {"orbits", "physics", "full", "default"}
+_PER_LINE = 5
+
+
+def resolve_info_keys(spec):
+    """A preset name or a comma-separated key list -> (keys, wants_orbits)."""
+    spec = (spec or "none").strip()
+    if spec in INFO_PRESETS:
+        return list(INFO_PRESETS[spec]), spec in INFO_WITH_ORBITS
+    keys = [k.strip() for k in spec.split(",") if k.strip()]
+    unknown = [k for k in keys if k not in INFO_KEYS]
+    if unknown:
+        print(f"  note: unknown --info key(s) {', '.join(unknown)}; "
+              f"known keys are {', '.join(sorted(INFO_KEYS))}")
+        keys = [k for k in keys if k in INFO_KEYS]
+    return keys, True
+
+
+def model_info(params, level="default"):
+    """Annotation lines for a figure.
+
+    `level` is a preset name from INFO_PRESETS or a comma-separated list of
+    INFO_KEYS. Returns (lines, P_orb); P_orb is None unless it could be derived,
+    in which case the caller can also report time in orbits - usually the most
+    informative thing on an animation, since code time means nothing on its own.
+    """
+    keys, wants_orbits = resolve_info_keys(level)
+    if not params or not keys:
+        return [], None
+
+    def g(k, d=None):
+        return _num(params, k, d)
+
+    P_orb, derived = None, {}
+    if wants_orbits or {"hr", "N_orbits"} & set(keys):
+        try:                                    # disk_model lives in scripts/theory
+            here = os.path.dirname(os.path.abspath(__file__))
+            for _ in range(6):
+                cand = os.path.join(here, "scripts", "theory")
+                if os.path.isdir(cand):
+                    sys.path.insert(0, cand)
+                    break
+                here = os.path.dirname(here)
+            from disk_model import DiskModel, orbits_to_accrete
+            m = DiskModel(M_bh=g("problem/M_bh", 4.5e7), T_0=g("problem/T_0", 5e4),
+                          mu=g("problem/mu", 0.6), chi=g("problem/chi", 500.0),
+                          rho_0=g("problem/rho_0", 1e-13),
+                          gamma=g("hydro/gamma", 1.3),
+                          r_center=g("problem/r_center", 1.0),
+                          C_prime=g("problem/C_prime", 0.2),
+                          alpha=g("problem/alpha", 0.0),
+                          rho_atm=g("problem/rho_atm", 1e-4))
+            P_orb = m.P_orb
+            derived = {"hr": ((m.gamma - 1.0) * (0.5 - m.C_prime)) ** 0.5,
+                       "N_orbits": orbits_to_accrete(m.alpha, m.gamma, m.C_prime)}
+        except Exception:
+            P_orb, derived = None, {}
+
+    def fmt(key):
+        label, path = INFO_KEYS[key]
+        if key == "grid":
+            nx1, nx2 = g("mesh/nx1"), g("mesh/nx2")
+            return f"{label} {int(nx1)}x{int(nx2)}" if nx1 and nx2 else None
+        if key == "hr":
+            return f"{label} = {derived['hr']:.3f}" if "hr" in derived else None
+        if key == "N_orbits":
+            return (f"{derived['N_orbits']:.0f} {label}"
+                    if "N_orbits" in derived else None)
+        v = g(path)
+        if v is None:
+            return None
+        if key == "M_bh":
+            return rf"{label} = {v:.3g} $M_\odot$"
+        if key == "T_0":
+            return f"{label} = {v:.3g} K"
+        return f"{label} = {v:.3g}"
+
+    items = [t for t in (fmt(k) for k in keys) if t]
+    return ["   ".join(items[i:i + _PER_LINE])
+            for i in range(0, len(items), _PER_LINE)], P_orb
