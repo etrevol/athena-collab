@@ -51,7 +51,11 @@ NOTES:
     - Column layout: i, r, j, phi, f_grav, f_centr, f_press, f_sum
     - Forces are phi-averaged (mean ± std shown as shaded band)
     - In equilibrium: f_grav + f_centr + f_press ≈ 0
+    - The four FORCE_COLORS come from athena_data.line_colors() (pypalettes);
+      there is no --palette flag here
 
+`import visforces` is side-effect free - argv is read only when run as a script (or
+by calling visforces._setup() then visforces.main() yourself).
 =============================================================================
 """
 
@@ -164,49 +168,57 @@ parser.add_argument("--log", action='store_true',
 parser.add_argument("--linthresh", type=float, default=None,
                     help="Linear threshold for symlog y-scale (default: auto-detect from data)")
 
-args = parser.parse_args()
+def _setup(argv=None):
+    """Parse argv and resolve paths. Only called from __main__, so
+    `import visforces` never touches argv or the filesystem.
+    """
+    global args, script_dir, data_dir, output_dir
 
-# Apply args to CONFIG
-CONFIG['fps'] = args.fps
-CONFIG['subsample'] = args.subsample
-CONFIG['num_workers'] = min(args.num_workers, cpu_count())
-CONFIG['r_min'] = args.r_min
-CONFIG['r_max'] = args.r_max
-CONFIG['log'] = args.log
-CONFIG['linthresh'] = args.linthresh
+    args = parser.parse_args(argv)
 
-# =============================================================================
-# PATH RESOLUTION
-# =============================================================================
-script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Apply args to CONFIG
+    CONFIG['fps'] = args.fps
+    CONFIG['subsample'] = args.subsample
+    CONFIG['num_workers'] = min(args.num_workers, cpu_count())
+    CONFIG['r_min'] = args.r_min
+    CONFIG['r_max'] = args.r_max
+    CONFIG['log'] = args.log
+    CONFIG['linthresh'] = args.linthresh
 
-if args.data_dir:
-    data_dir = args.data_dir or _ad.default_data_dir()
-    _output_base = script_dir
-else:
-    # Try to find 'data' relative to script location
-    candidates = [
-        os.path.join(script_dir, "data"),
-        os.path.join(os.path.dirname(script_dir), "data"),
-    ]
-    data_dir = next((c for c in candidates if os.path.isdir(c)), candidates[0])
-    _output_base = os.path.dirname(script_dir) if data_dir == candidates[1] else script_dir
+    # =============================================================================
+    # PATH RESOLUTION
+    # =============================================================================
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
-output_dir = args.output_dir if args.output_dir else os.path.join(_output_base, "figs_forces")
-os.makedirs(output_dir, exist_ok=True)
+    if args.data_dir:
+        data_dir = args.data_dir or _ad.default_data_dir()
+        _output_base = script_dir
+    else:
+        # Try to find 'data' relative to script location
+        candidates = [
+            os.path.join(script_dir, "data"),
+            os.path.join(os.path.dirname(script_dir), "data"),
+        ]
+        data_dir = next((c for c in candidates if os.path.isdir(c)), candidates[0])
+        _output_base = os.path.dirname(script_dir) if data_dir == candidates[1] else script_dir
 
-print("=" * 70)
-print("ATHENA++ RADIAL FORCE BALANCE VISUALIZER")
-print("=" * 70)
-print(f"Data directory:   {data_dir}")
-print(f"Output directory: {output_dir}")
-print(f"Mode:             {args.mode}")
-if args.r_min is not None or args.r_max is not None:
-    print(f"Radial range:     [{args.r_min}, {args.r_max}]")
-if args.log:
-    thresh_str = str(args.linthresh) if args.linthresh is not None else 'auto'
-    print(f"Log scale:        symlog (linthresh={thresh_str})")
-print()
+    output_dir = args.output_dir if args.output_dir else os.path.join(_output_base, "figs_forces")
+    os.makedirs(output_dir, exist_ok=True)
+
+    print("=" * 70)
+    print("ATHENA++ RADIAL FORCE BALANCE VISUALIZER")
+    print("=" * 70)
+    print(f"Data directory:   {data_dir}")
+    print(f"Output directory: {output_dir}")
+    print(f"Mode:             {args.mode}")
+    if args.r_min is not None or args.r_max is not None:
+        print(f"Radial range:     [{args.r_min}, {args.r_max}]")
+    if args.log:
+        thresh_str = str(args.linthresh) if args.linthresh is not None else 'auto'
+        print(f"Log scale:        symlog (linthresh={thresh_str})")
+    print()
+
+
 
 # =============================================================================
 # FILE DISCOVERY — uov .tab files
@@ -709,4 +721,5 @@ def main():
 
 
 if __name__ == "__main__":
+    _setup()
     main()
