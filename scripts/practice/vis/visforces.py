@@ -135,9 +135,7 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
 )
 parser.add_argument("--data_dir", default=None,
-                    help="Directory with uov .athdf or .tab files (default: auto-detect)")
-parser.add_argument("--format", default=None, choices=["athdf", "tab"],
-                    help="Force an input format (default: auto, prefers .athdf)")
+                    help="Directory with uov .tab files (default: auto-detect)")
 parser.add_argument("--output_id", type=int, default=2,
                     help="Athena++ output block id holding the uov data (default: 2)")
 parser.add_argument("--title", default=None,
@@ -244,7 +242,9 @@ def discover_uov_files(data_dir):
 
     Same return contract as before: (frames_dict, base_name, num_blocks).
     """
-    info = _ad.discover(data_dir, output_id=args.output_id, prefer=args.format)
+    # Format check is a cheap directory listing, done inside discover() before
+    # anything else; .tab is preferred when both are present (see athena_data.py).
+    info = _ad.discover(data_dir, output_id=args.output_id)
     _ad.INFO = info
     print(f"  Input: {_ad.describe(info)}")
     return info["frames"], info["base"], info["nblocks"]

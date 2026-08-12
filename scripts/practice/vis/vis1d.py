@@ -129,9 +129,7 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
 )
 parser.add_argument("--data_dir", default=None, 
-                    help="Directory with .athdf or .tab files (default: ../data)")
-parser.add_argument("--format", default=None, choices=["athdf", "tab"],
-                    help="Force an input format (default: auto, prefers .athdf)")
+                    help="Directory with .tab files (default: ../data)")
 parser.add_argument("--output_id", type=int, default=1,
                     help="Athena++ output block id to read (default: 1 = prim)")
 parser.add_argument("--title", default=None,
@@ -245,7 +243,9 @@ def group_files_by_frame(data_dir):
     Kept for call compatibility: returns (frames_dict, base_name, num_blocks,
     is_multiblock) exactly as the .tab-only version did.
     """
-    info = _ad.discover(data_dir, output_id=args.output_id, prefer=args.format)
+    # Format check is a cheap directory listing, done inside discover() before
+    # anything else; .tab is preferred when both are present (see athena_data.py).
+    info = _ad.discover(data_dir, output_id=args.output_id)
     _ad.INFO = info
     print(f"  Input: {_ad.describe(info)}")
     return info["frames"], info["base"], info["nblocks"], info["nblocks"] > 1
