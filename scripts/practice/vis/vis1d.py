@@ -39,6 +39,11 @@ EXAMPLES:
     # Limit radial range
     python3 vis1d.py --r_min 0.1 --r_max 2.0
 
+Line colours come from athena_data.line_colors() (pypalettes); there is no --palette
+flag here, unlike vis2d.py.
+
+`import vis1d` is side-effect free - argv is read only when run as a script (or by
+calling vis1d._setup() then vis1d.main() yourself).
 =============================================================================
 """
 
@@ -153,31 +158,63 @@ parser.add_argument("--r_min", type=float, default=None,
 parser.add_argument("--r_max", type=float, default=None,
                     help="Maximum radius for plotting")
 
-args = parser.parse_args()
+def _setup(argv=None):
+    """Parse argv, resolve paths, and discover the data.
 
-# Set paths
-script_dir = os.path.dirname(os.path.abspath(__file__))
-data_dir = args.data_dir or _ad.default_data_dir()
-output_dir = args.output_dir if args.output_dir else os.path.join(script_dir, "figs_1d")
-os.makedirs(output_dir, exist_ok=True)
+    Only called from __main__, so `import vis1d` never touches argv,
+    the filesystem, or stdout.
+    """
+    global args, script_dir, data_dir, output_dir
+    global frames_dict, base_name, num_blocks, is_multiblock
+    global available_frames, num_frames
 
-CONFIG['fps'] = args.fps
-CONFIG['subsample'] = args.subsample
-CONFIG['logscale'] = args.logscale
-CONFIG['r_min'] = args.r_min
-CONFIG['r_max'] = args.r_max
+    args = parser.parse_args(argv)
 
-print("="*80)
-print("ATHENA++ 1D RADIAL PROFILE VISUALIZER")
-print("="*80)
-print(f"Data directory: {data_dir}")
-print(f"Output directory: {output_dir}")
-print(f"Mode: {args.mode}")
-print(f"Frame subsampling: {CONFIG['subsample']}")
-print(f"Log scale: {'✓ ENABLED' if CONFIG['logscale'] else '✗ DISABLED'}")
-if args.r_min is not None or args.r_max is not None:
-    r_range = f"r: [{args.r_min if args.r_min is not None else 'auto'}:{args.r_max if args.r_max is not None else 'auto'}]"
-    print(f"Radial range: {r_range}")
+    # Set paths
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = args.data_dir or _ad.default_data_dir()
+    output_dir = args.output_dir if args.output_dir else os.path.join(script_dir, "figs_1d")
+    os.makedirs(output_dir, exist_ok=True)
+
+    CONFIG['fps'] = args.fps
+    CONFIG['subsample'] = args.subsample
+    CONFIG['logscale'] = args.logscale
+    CONFIG['r_min'] = args.r_min
+    CONFIG['r_max'] = args.r_max
+
+    print("="*80)
+    print("ATHENA++ 1D RADIAL PROFILE VISUALIZER")
+    print("="*80)
+    print(f"Data directory: {data_dir}")
+    print(f"Output directory: {output_dir}")
+    print(f"Mode: {args.mode}")
+    print(f"Frame subsampling: {CONFIG['subsample']}")
+    print(f"Log scale: {'✓ ENABLED' if CONFIG['logscale'] else '✗ DISABLED'}")
+    if args.r_min is not None or args.r_max is not None:
+        r_range = f"r: [{args.r_min if args.r_min is not None else 'auto'}:{args.r_max if args.r_max is not None else 'auto'}]"
+        print(f"Radial range: {r_range}")
+
+    frames_dict, base_name, num_blocks, is_multiblock = group_files_by_frame(data_dir)
+
+    if not frames_dict:
+        print(f"ERROR: No valid data files found in {data_dir}")
+        print("Expected formats:")
+        print("  Multi-block: <name>.block<N>.out1.<frame>.tab")
+        print("  Single-block: <name>.out1.<frame>.tab")
+        exit(1)
+
+    available_frames = sorted(frames_dict.keys())
+    num_frames = len(available_frames)
+
+    if num_blocks > 1:
+        print(f"Found {num_frames} frames with {num_blocks} blocks each")
+    else:
+        print(f"Found {num_frames} frames (single-block format)")
+    print(f"Base name: {base_name}")
+    print(f"Frame range: {available_frames[0]} to {available_frames[-1]}")
+
+
+
 
 # =============================================================================
 # FILE PARSING AND GROUPING
@@ -394,27 +431,6 @@ def create_radial_evolution_animation(available_frames, frames_dict, output_dir)
     print(f"  Saved animation: {output_video}")
     plt.close()
 
-# =============================================================================
-# FIND AND GROUP FILES
-# =============================================================================
-frames_dict, base_name, num_blocks, is_multiblock = group_files_by_frame(data_dir)
-
-if not frames_dict:
-    print(f"ERROR: No valid data files found in {data_dir}")
-    print("Expected formats:")
-    print("  Multi-block: <name>.block<N>.out1.<frame>.tab")
-    print("  Single-block: <name>.out1.<frame>.tab")
-    exit(1)
-
-available_frames = sorted(frames_dict.keys())
-num_frames = len(available_frames)
-
-if num_blocks > 1:
-    print(f"Found {num_frames} frames with {num_blocks} blocks each")
-else:
-    print(f"Found {num_frames} frames (single-block format)")
-print(f"Base name: {base_name}")
-print(f"Frame range: {available_frames[0]} to {available_frames[-1]}")
 
 # =============================================================================
 # MAIN FUNCTION
@@ -453,4 +469,5 @@ def main():
     print("="*80)
 
 if __name__ == "__main__":
+    _setup()
     main()

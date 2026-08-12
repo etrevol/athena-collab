@@ -133,6 +133,8 @@ EXAMPLES:
     # Keep more dynamic range (include more extreme values)
     python3 vis2d.py --mode animation --vmin_percentile 1 --vmax_percentile 99
 
+`import vis2d` is side-effect free - argv is read only when run as a script (or by
+calling vis2d._setup() then vis2d.main() yourself, e.g. from a notebook).
 =============================================================================
 """
 
@@ -356,102 +358,136 @@ parser.add_argument("--vec_clip", type=float, default=92.0,
                          "cells do not draw arrows through their neighbours. Direction "
                          "is never changed; 100 disables the cap (default: 92)")
 
-args = parser.parse_args()
+def _setup(argv=None):
+    """Parse argv, resolve paths/config, and discover the data.
 
-# Set paths
-script_dir = os.path.dirname(os.path.abspath(__file__))
-if args.data_dir:
-    data_dir = args.data_dir or _ad.default_data_dir()
-    _output_base = script_dir
-else:
-    _candidate = os.path.join(script_dir, "data")
-    if not os.path.isdir(_candidate):
-        _candidate = os.path.join(os.path.dirname(script_dir), "data")
-        _output_base = os.path.dirname(script_dir)
-    else:
+    Only called from __main__ (see the bottom of this file), so
+    `import vis2d` never touches argv, the filesystem, or stdout -
+    every function below can be called directly once this has run.
+    """
+    global args, script_dir, data_dir, output_dir
+    global frames_dict, base_name, num_blocks, is_multiblock
+    global available_frames, num_frames
+    global INFO_LINES, INFO_P_ORB
+
+    args = parser.parse_args(argv)
+
+    # Set paths
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if args.data_dir:
+        data_dir = args.data_dir or _ad.default_data_dir()
         _output_base = script_dir
-    data_dir = _candidate
-output_dir = args.output_dir if args.output_dir else os.path.join(_output_base, "figs_2d")
-os.makedirs(output_dir, exist_ok=True)
-
-CONFIG['fps'] = args.fps
-CONFIG['colormap'] = args.colormap
-CONFIG['num_workers'] = min(args.num_workers, cpu_count())
-CONFIG['subsample'] = args.subsample
-CONFIG['r_min'] = args.r_min
-CONFIG['r_max'] = args.r_max
-CONFIG['phi_min'] = args.phi_min
-CONFIG['phi_max'] = args.phi_max
-CONFIG['vmin_percentile'] = args.vmin_percentile
-CONFIG['vmax_percentile'] = args.vmax_percentile
-CONFIG['normalize'] = args.normalize
-CONFIG['vectors'] = args.vectors
-CONFIG['palette'] = args.palette
-CONFIG['info_pos'] = args.info_pos
-CONFIG['info_on'] = args.info_on
-CONFIG['vec_field'] = args.vec_field
-CONFIG['vec_comp'] = args.vec_comp
-CONFIG['vec_frame'] = args.vec_frame
-CONFIG['vec_panels'] = args.vec_panels
-CONFIG['vec_style'] = args.vec_style
-CONFIG['vec_lattice'] = args.vec_lattice
-CONFIG['vec_scale'] = args.vec_scale
-CONFIG['vec_arrows'] = args.vec_arrows
-CONFIG['vec_stride'] = args.vec_stride
-CONFIG['vec_color'] = args.vec_color
-CONFIG['vec_density'] = args.vec_density
-CONFIG['vec_clip'] = args.vec_clip
-
-if args.normalize == 'azimuthal':
-    # The normalised fields are signed and centred on zero, so a sequential map on a log
-    # scale would be both wrong and unreadable. One hue each side of a neutral middle.
-    CONFIG['log_scale_vars'] = []
-    for _v, _info in VARIABLE_INFO.items():
-        _info['log'] = False
-        _info['cmap'] = 'RdBu_r'
-        _rel = _v in RELATIVE_NORM_VARS
-        _info['label'] = (_info['label'].split(' (')[0]
-                          + (r'$/\langle\cdot\rangle_\phi - 1$' if _rel
-                             else r'$ - \langle\cdot\rangle_\phi$'))
-
-print("="*80)
-print("ATHENA++ 2D VISUALIZER")
-print("="*80)
-print(f"Data directory: {data_dir}")
-print(f"Output directory: {output_dir}")
-print(f"Mode: {args.mode}")
-print(f"CPU workers: {CONFIG['num_workers']} (parallel frame processing)")
-print(f"Frame subsampling: {CONFIG['subsample']}")
-if args.r_min is not None or args.r_max is not None:
-    r_range = f"r: [{args.r_min if args.r_min is not None else 'auto'}:{args.r_max if args.r_max is not None else 'auto'}]"
-    print(f"Radial range: {r_range}")
-if args.phi_min is not None or args.phi_max is not None:
-    phi_range = f"φ: [{args.phi_min if args.phi_min is not None else 'auto'}:{args.phi_max if args.phi_max is not None else 'auto'}] rad"
-    print(f"Azimuthal range: {phi_range}")
-print(f"Color scale percentiles: [{args.vmin_percentile}, {args.vmax_percentile}]")
-
-# Model annotation. A run with no athinput beside it simply gets none: results/runs
-# keeps only data/, and a missing file is not an error.
-INFO_LINES, INFO_P_ORB = [], None
-if args.info != "none":
-    _ath = _ad.find_athinput(data_dir, args.params)
-    if _ath:
-        INFO_LINES, INFO_P_ORB = _ad.model_info(_ad.read_athinput(_ath), args.info)
-        print(f"Model info: {args.info} ({args.info_pos}) from {os.path.basename(_ath)}")
     else:
-        print("Model info: requested, but no athinput found next to the data; omitted")
+        _candidate = os.path.join(script_dir, "data")
+        if not os.path.isdir(_candidate):
+            _candidate = os.path.join(os.path.dirname(script_dir), "data")
+            _output_base = os.path.dirname(script_dir)
+        else:
+            _output_base = script_dir
+        data_dir = _candidate
+    output_dir = args.output_dir if args.output_dir else os.path.join(_output_base, "figs_2d")
+    os.makedirs(output_dir, exist_ok=True)
 
-# The 2D colormaps are replaced only on request; see --cmap_palette.
-if args.cmap_palette:
-    try:
-        from pypalettes import load_cmap as _load_cmap
-        _cm = _load_cmap(args.cmap_palette, cmap_type="continuous")
-        for _vi in VARIABLE_INFO.values():
-            _vi["cmap"] = _cm
-        print(f"2D colormaps replaced by pypalettes '{args.cmap_palette}'")
-    except Exception as _exc:
-        print(f"  note: --cmap_palette '{args.cmap_palette}' unusable ({_exc}); "
-              f"keeping the defaults")
+    CONFIG['fps'] = args.fps
+    CONFIG['colormap'] = args.colormap
+    CONFIG['num_workers'] = min(args.num_workers, cpu_count())
+    CONFIG['subsample'] = args.subsample
+    CONFIG['r_min'] = args.r_min
+    CONFIG['r_max'] = args.r_max
+    CONFIG['phi_min'] = args.phi_min
+    CONFIG['phi_max'] = args.phi_max
+    CONFIG['vmin_percentile'] = args.vmin_percentile
+    CONFIG['vmax_percentile'] = args.vmax_percentile
+    CONFIG['normalize'] = args.normalize
+    CONFIG['vectors'] = args.vectors
+    CONFIG['palette'] = args.palette
+    CONFIG['info_pos'] = args.info_pos
+    CONFIG['info_on'] = args.info_on
+    CONFIG['vec_field'] = args.vec_field
+    CONFIG['vec_comp'] = args.vec_comp
+    CONFIG['vec_frame'] = args.vec_frame
+    CONFIG['vec_panels'] = args.vec_panels
+    CONFIG['vec_style'] = args.vec_style
+    CONFIG['vec_lattice'] = args.vec_lattice
+    CONFIG['vec_scale'] = args.vec_scale
+    CONFIG['vec_arrows'] = args.vec_arrows
+    CONFIG['vec_stride'] = args.vec_stride
+    CONFIG['vec_color'] = args.vec_color
+    CONFIG['vec_density'] = args.vec_density
+    CONFIG['vec_clip'] = args.vec_clip
+
+    if args.normalize == 'azimuthal':
+        # The normalised fields are signed and centred on zero, so a sequential map on a log
+        # scale would be both wrong and unreadable. One hue each side of a neutral middle.
+        CONFIG['log_scale_vars'] = []
+        for _v, _info in VARIABLE_INFO.items():
+            _info['log'] = False
+            _info['cmap'] = 'RdBu_r'
+            _rel = _v in RELATIVE_NORM_VARS
+            _info['label'] = (_info['label'].split(' (')[0]
+                              + (r'$/\langle\cdot\rangle_\phi - 1$' if _rel
+                                 else r'$ - \langle\cdot\rangle_\phi$'))
+
+    print("="*80)
+    print("ATHENA++ 2D VISUALIZER")
+    print("="*80)
+    print(f"Data directory: {data_dir}")
+    print(f"Output directory: {output_dir}")
+    print(f"Mode: {args.mode}")
+    print(f"CPU workers: {CONFIG['num_workers']} (parallel frame processing)")
+    print(f"Frame subsampling: {CONFIG['subsample']}")
+    if args.r_min is not None or args.r_max is not None:
+        r_range = f"r: [{args.r_min if args.r_min is not None else 'auto'}:{args.r_max if args.r_max is not None else 'auto'}]"
+        print(f"Radial range: {r_range}")
+    if args.phi_min is not None or args.phi_max is not None:
+        phi_range = f"φ: [{args.phi_min if args.phi_min is not None else 'auto'}:{args.phi_max if args.phi_max is not None else 'auto'}] rad"
+        print(f"Azimuthal range: {phi_range}")
+    print(f"Color scale percentiles: [{args.vmin_percentile}, {args.vmax_percentile}]")
+
+    # Model annotation. A run with no athinput beside it simply gets none: results/runs
+    # keeps only data/, and a missing file is not an error.
+    INFO_LINES, INFO_P_ORB = [], None
+    if args.info != "none":
+        _ath = _ad.find_athinput(data_dir, args.params)
+        if _ath:
+            INFO_LINES, INFO_P_ORB = _ad.model_info(_ad.read_athinput(_ath), args.info)
+            print(f"Model info: {args.info} ({args.info_pos}) from {os.path.basename(_ath)}")
+        else:
+            print("Model info: requested, but no athinput found next to the data; omitted")
+
+    # The 2D colormaps are replaced only on request; see --cmap_palette.
+    if args.cmap_palette:
+        try:
+            from pypalettes import load_cmap as _load_cmap
+            _cm = _load_cmap(args.cmap_palette, cmap_type="continuous")
+            for _vi in VARIABLE_INFO.values():
+                _vi["cmap"] = _cm
+            print(f"2D colormaps replaced by pypalettes '{args.cmap_palette}'")
+        except Exception as _exc:
+            print(f"  note: --cmap_palette '{args.cmap_palette}' unusable ({_exc}); "
+                  f"keeping the defaults")
+
+
+    frames_dict, base_name, num_blocks, is_multiblock = group_files_by_frame(data_dir)
+
+    if not frames_dict:
+        print(f"ERROR: No valid data files found in {data_dir}")
+        print("Expected formats:")
+        print("  Multi-block: <name>.block<N>.out1.<frame>.tab")
+        print("  Single-block: <name>.out1.<frame>.tab")
+        exit(1)
+
+    available_frames = sorted(frames_dict.keys())
+    num_frames = len(available_frames)
+
+    if num_blocks > 1:
+        print(f"Found {num_frames} frames with {num_blocks} blocks each")
+    else:
+        print(f"Found {num_frames} frames (single-block format)")
+    print(f"Base name: {base_name}")
+    print(f"Frame range: {available_frames[0]} to {available_frames[-1]}")
+
+
 
 
 def info_footer_height(plot="polar"):
@@ -540,24 +576,6 @@ def group_files_by_frame(data_dir):
 # =============================================================================
 # FIND AND GROUP FILES
 # =============================================================================
-frames_dict, base_name, num_blocks, is_multiblock = group_files_by_frame(data_dir)
-
-if not frames_dict:
-    print(f"ERROR: No valid data files found in {data_dir}")
-    print("Expected formats:")
-    print("  Multi-block: <name>.block<N>.out1.<frame>.tab")
-    print("  Single-block: <name>.out1.<frame>.tab")
-    exit(1)
-
-available_frames = sorted(frames_dict.keys())
-num_frames = len(available_frames)
-
-if num_blocks > 1:
-    print(f"Found {num_frames} frames with {num_blocks} blocks each")
-else:
-    print(f"Found {num_frames} frames (single-block format)")
-print(f"Base name: {base_name}")
-print(f"Frame range: {available_frames[0]} to {available_frames[-1]}")
 
 # =============================================================================
 # DATA READING AND PROCESSING FUNCTIONS
@@ -1745,4 +1763,5 @@ def main():
     print("="*80)
 
 if __name__ == "__main__":
+    _setup()
     main()

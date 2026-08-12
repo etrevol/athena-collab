@@ -42,6 +42,11 @@ EXAMPLES:
     # Linear scale for specific variables (default is log scale)
     python3 vishst.py --mode all --linear_scale disk_mass mass
 
+The dual-axis colours (disk_mass, mdot_in) and the generic single-line colour come
+from athena_data.line_colors() (pypalettes); there is no --palette flag here.
+
+`import vishst` is side-effect free - argv is read only when run as a script (or by
+calling vishst.main() yourself, which does its own argument parsing).
 =============================================================================
 """
 
@@ -145,46 +150,6 @@ parser.add_argument("--style", default=CONFIG['style'],
                              'bmh', 'ggplot', 'classic'],
                     help="Matplotlib style")
 
-args = parser.parse_args()
-
-# Set paths
-script_dir = os.path.dirname(os.path.abspath(__file__))
-if args.hst_file:
-    data_dir = os.path.join(script_dir, "data")
-    _output_base = script_dir
-else:
-    _candidate = os.path.join(script_dir, "data")
-    if not os.path.isdir(_candidate):
-        _candidate = os.path.join(os.path.dirname(script_dir), "data")
-        _output_base = os.path.dirname(script_dir)
-    else:
-        _output_base = script_dir
-    data_dir = _candidate
-output_dir = args.output_dir if args.output_dir else os.path.join(_output_base, "figs_hst")
-os.makedirs(output_dir, exist_ok=True)
-
-# Update config
-CONFIG['dpi'] = args.dpi
-CONFIG['figsize'] = tuple(args.figsize)
-CONFIG['grid'] = args.grid
-if args.style and args.style != 'default':
-    CONFIG['style'] = args.style
-
-# Apply matplotlib style
-try:
-    plt.style.use(CONFIG['style'])
-except OSError:
-    print(f"Warning: Style '{CONFIG['style']}' not available, using default")
-    plt.style.use('default')
-
-print("="*80)
-print("ATHENA++ HISTORY FILE VISUALIZER")
-print("="*80)
-print(f"Output directory: {output_dir}")
-print(f"Mode: {args.mode}")
-print(f"Grid: {'✓ ENABLED' if CONFIG['grid'] else '✗ DISABLED'}")
-print(f"DPI: {CONFIG['dpi']}")
-print(f"Figure size: {CONFIG['figsize'][0]} x {CONFIG['figsize'][1]} inches")
 
 # =============================================================================
 # FILE DETECTION AND READING
@@ -234,52 +199,6 @@ def read_hst_file(filename):
     return data_dict, col_names
 
 # Find and read history file
-if args.hst_file:
-    hst_file = args.hst_file
-else:
-    hst_file = find_hst_file(data_dir)
-
-if not hst_file or not os.path.exists(hst_file):
-    print(f"ERROR: No .hst file found in {data_dir}")
-    print("Please specify with --hst_file")
-    sys.exit(1)
-
-print(f"Reading: {hst_file}")
-data, all_vars = read_hst_file(hst_file)
-print(f"Available variables: {', '.join(all_vars)}")
-print(f"Time range: {data['time'][0]:.6e} to {data['time'][-1]:.6e}")
-print(f"Number of timesteps: {len(data['time'])}")
-print(f"Scale: {'Linear for: ' + ', '.join(args.linear_scale) if args.linear_scale else 'Logarithmic (default)'}")
-
-# =============================================================================
-# DETERMINE WHICH VARIABLES TO PLOT
-# =============================================================================
-vars_to_plot = []  # Initialize to avoid unbound variable warning
-
-if args.mode == 'default':
-    vars_to_plot = DEFAULT_VARS
-    print(f"Plotting default variables: {', '.join(vars_to_plot)}")
-elif args.mode == 'all':
-    # Exclude 'time' and 'dt' from plotting
-    vars_to_plot = [v for v in all_vars if v not in ['time', 'dt']]
-    print(f"Plotting all {len(vars_to_plot)} variables")
-elif args.mode == 'custom':
-    if not args.vars:
-        print("ERROR: --vars required for custom mode")
-        sys.exit(1)
-    vars_to_plot = args.vars
-    # Check if all requested variables exist
-    missing = [v for v in vars_to_plot if v not in data]
-    if missing:
-        print(f"ERROR: Variables not found: {', '.join(missing)}")
-        print(f"Available: {', '.join(all_vars)}")
-        sys.exit(1)
-    print(f"Plotting custom variables: {', '.join(vars_to_plot)}")
-else:
-    # This should never happen due to argparse choices, but satisfies type checker
-    print(f"ERROR: Unknown mode '{args.mode}'")
-    sys.exit(1)
-
 # =============================================================================
 # PLOTTING FUNCTIONS
 # =============================================================================
@@ -307,7 +226,7 @@ def plot_variable(time, var_data, var_name, output_dir, linear_scale=False):
     ax.set_xlabel('Time', fontsize=12, fontweight='bold')
     ax.set_ylabel(label, fontsize=12, fontweight='bold')
     ax.set_title(_ad.format_title(f'{label} Evolution', args.title,
-                                  label=label, var=var, file=os.path.basename(hst_file)),
+                                  label=label, var=var_name, file=os.path.basename(hst_file)),
                  fontsize=14, fontweight='bold', pad=15)
     
     # Use log scale by default, unless explicitly set to linear
@@ -482,61 +401,163 @@ def plot_disk_mass_and_mdot(time, disk_mass, mdot_in, output_dir):
 # =============================================================================
 # MAIN PLOTTING
 # =============================================================================
-print("\n" + "="*80)
-print("GENERATING PLOTS")
-print("="*80)
 
-time = data['time']
-linear_scale_vars = args.linear_scale
 
-# Mode-specific plotting
-if args.mode == 'default':
-    # Special dual-axis plot for disk mass and mdot
-    if 'disk_mass' in data and 'mdot_in' in data:
-        print("\nCreating combined disk_mass and mdot_in plot...")
-        output = plot_disk_mass_and_mdot(time, data['disk_mass'], data['mdot_in'], output_dir)
+def main(argv=None):
+    """Parse argv, read the .hst file, and write every requested plot.
+
+    Kept out of module scope so `import vishst` never touches argv, the
+    filesystem, or stdout.
+    """
+    global args, hst_file
+
+    args = parser.parse_args(argv)
+
+    # Set paths
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if args.hst_file:
+        data_dir = os.path.join(script_dir, "data")
+        _output_base = script_dir
+    else:
+        _candidate = os.path.join(script_dir, "data")
+        if not os.path.isdir(_candidate):
+            _candidate = os.path.join(os.path.dirname(script_dir), "data")
+            _output_base = os.path.dirname(script_dir)
+        else:
+            _output_base = script_dir
+        data_dir = _candidate
+    output_dir = args.output_dir if args.output_dir else os.path.join(_output_base, "figs_hst")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Update config
+    CONFIG['dpi'] = args.dpi
+    CONFIG['figsize'] = tuple(args.figsize)
+    CONFIG['grid'] = args.grid
+    if args.style and args.style != 'default':
+        CONFIG['style'] = args.style
+
+    # Apply matplotlib style
+    try:
+        plt.style.use(CONFIG['style'])
+    except OSError:
+        print(f"Warning: Style '{CONFIG['style']}' not available, using default")
+        plt.style.use('default')
+
+    print("="*80)
+    print("ATHENA++ HISTORY FILE VISUALIZER")
+    print("="*80)
+    print(f"Output directory: {output_dir}")
+    print(f"Mode: {args.mode}")
+    print(f"Grid: {'✓ ENABLED' if CONFIG['grid'] else '✗ DISABLED'}")
+    print(f"DPI: {CONFIG['dpi']}")
+    print(f"Figure size: {CONFIG['figsize'][0]} x {CONFIG['figsize'][1]} inches")
+
+    if args.hst_file:
+        hst_file = args.hst_file
+    else:
+        hst_file = find_hst_file(data_dir)
+
+    if not hst_file or not os.path.exists(hst_file):
+        print(f"ERROR: No .hst file found in {data_dir}")
+        print("Please specify with --hst_file")
+        sys.exit(1)
+
+    print(f"Reading: {hst_file}")
+    data, all_vars = read_hst_file(hst_file)
+    print(f"Available variables: {', '.join(all_vars)}")
+    print(f"Time range: {data['time'][0]:.6e} to {data['time'][-1]:.6e}")
+    print(f"Number of timesteps: {len(data['time'])}")
+    print(f"Scale: {'Linear for: ' + ', '.join(args.linear_scale) if args.linear_scale else 'Logarithmic (default)'}")
+
+    # =============================================================================
+    # DETERMINE WHICH VARIABLES TO PLOT
+    # =============================================================================
+    vars_to_plot = []  # Initialize to avoid unbound variable warning
+
+    if args.mode == 'default':
+        vars_to_plot = DEFAULT_VARS
+        print(f"Plotting default variables: {', '.join(vars_to_plot)}")
+    elif args.mode == 'all':
+        # Exclude 'time' and 'dt' from plotting
+        vars_to_plot = [v for v in all_vars if v not in ['time', 'dt']]
+        print(f"Plotting all {len(vars_to_plot)} variables")
+    elif args.mode == 'custom':
+        if not args.vars:
+            print("ERROR: --vars required for custom mode")
+            sys.exit(1)
+        vars_to_plot = args.vars
+        # Check if all requested variables exist
+        missing = [v for v in vars_to_plot if v not in data]
+        if missing:
+            print(f"ERROR: Variables not found: {', '.join(missing)}")
+            print(f"Available: {', '.join(all_vars)}")
+            sys.exit(1)
+        print(f"Plotting custom variables: {', '.join(vars_to_plot)}")
+    else:
+        # This should never happen due to argparse choices, but satisfies type checker
+        print(f"ERROR: Unknown mode '{args.mode}'")
+        sys.exit(1)
+
+
+    print("\n" + "="*80)
+    print("GENERATING PLOTS")
+    print("="*80)
+
+    time = data['time']
+    linear_scale_vars = args.linear_scale
+
+    # Mode-specific plotting
+    if args.mode == 'default':
+        # Special dual-axis plot for disk mass and mdot
+        if 'disk_mass' in data and 'mdot_in' in data:
+            print("\nCreating combined disk_mass and mdot_in plot...")
+            output = plot_disk_mass_and_mdot(time, data['disk_mass'], data['mdot_in'], output_dir)
+            print(f"  ✓ Saved: {output}")
+    
+        # Individual plots
+        for var in vars_to_plot:
+            if var in data:
+                print(f"\nPlotting {var}...")
+                use_linear = var in linear_scale_vars
+                output = plot_variable(time, data[var], var, output_dir, linear_scale=use_linear)
+                print(f"  ✓ Saved: {output}")
+            else:
+                print(f"  ✗ Warning: {var} not found in data")
+
+    elif args.mode == 'all':
+        # Create overview plot with all variables
+        print("\nCreating overview plot with all variables...")
+        output = plot_multiple_variables(time, data, vars_to_plot, output_dir, linear_scale_vars)
         print(f"  ✓ Saved: {output}")
     
-    # Individual plots
-    for var in vars_to_plot:
-        if var in data:
+        # Individual plots for each variable
+        print("\nCreating individual plots...")
+        for var in vars_to_plot:
+            use_linear = var in linear_scale_vars
+            output = plot_variable(time, data[var], var, output_dir, linear_scale=use_linear)
+            print(f"  ✓ {var}")
+
+    elif args.mode == 'custom':
+        # Plot only requested variables
+        for var in vars_to_plot:
             print(f"\nPlotting {var}...")
             use_linear = var in linear_scale_vars
             output = plot_variable(time, data[var], var, output_dir, linear_scale=use_linear)
             print(f"  ✓ Saved: {output}")
-        else:
-            print(f"  ✗ Warning: {var} not found in data")
-
-elif args.mode == 'all':
-    # Create overview plot with all variables
-    print("\nCreating overview plot with all variables...")
-    output = plot_multiple_variables(time, data, vars_to_plot, output_dir, linear_scale_vars)
-    print(f"  ✓ Saved: {output}")
     
-    # Individual plots for each variable
-    print("\nCreating individual plots...")
-    for var in vars_to_plot:
-        use_linear = var in linear_scale_vars
-        output = plot_variable(time, data[var], var, output_dir, linear_scale=use_linear)
-        print(f"  ✓ {var}")
+        # If more than one variable, create overview
+        if len(vars_to_plot) > 1:
+            print("\nCreating overview plot...")
+            output = plot_multiple_variables(time, data, vars_to_plot, output_dir, linear_scale_vars)
+            print(f"  ✓ Saved: {output}")
 
-elif args.mode == 'custom':
-    # Plot only requested variables
-    for var in vars_to_plot:
-        print(f"\nPlotting {var}...")
-        use_linear = var in linear_scale_vars
-        output = plot_variable(time, data[var], var, output_dir, linear_scale=use_linear)
-        print(f"  ✓ Saved: {output}")
-    
-    # If more than one variable, create overview
-    if len(vars_to_plot) > 1:
-        print("\nCreating overview plot...")
-        output = plot_multiple_variables(time, data, vars_to_plot, output_dir, linear_scale_vars)
-        print(f"  ✓ Saved: {output}")
+    print("\n" + "="*80)
+    print("VISUALIZATION COMPLETE")
+    print("="*80)
+    print(f"All plots saved to: {output_dir}")
+    print(f"Total plots created: {len([f for f in os.listdir(output_dir) if f.endswith('.png')])}")
+    print("="*80)
 
-print("\n" + "="*80)
-print("VISUALIZATION COMPLETE")
-print("="*80)
-print(f"All plots saved to: {output_dir}")
-print(f"Total plots created: {len([f for f in os.listdir(output_dir) if f.endswith('.png')])}")
-print("="*80)
+
+if __name__ == "__main__":
+    main()
