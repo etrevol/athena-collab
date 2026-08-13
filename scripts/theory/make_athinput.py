@@ -48,7 +48,7 @@ file_type  = hst         # output format
 dt         = {dt_out:<12.6g}# time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
 data_format = %24.16e    # output format specifier
-
+{restart_block}
 <time>
 cfl_number = {cfl:<12}# Courant, Friedrichs & Lewy number
 nlim       = -1          # cycle limit (-1 = unlimited)
@@ -134,12 +134,29 @@ THEORY_BLOCK = """
 
 def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
           meshblock=None, cfl=0.4, fmt="tab", dfloor=1e-12, pfloor=1e-10,
-          visc_rho_cut=None):
+          visc_rho_cut=None, restart_every_orbits=None):
+    """restart_every_orbits: emit an <output4> rst block at that cadence, or None.
+
+    A .rst holds the entire state, so it is far larger than a .tab frame - the
+    cadence is deliberately a separate knob from frames_per_orbit rather than
+    being tied to it. Without such a block a run cannot be continued at all,
+    which is why build.sh/sweep.sh check for one before offering to resume.
+    """
     g = model.grid(nx1=nx1, nx2=nx2)
     mb1, mb2 = (meshblock if meshblock else (nx1, nx2))
     visc_cut = visc_rho_cut if visc_rho_cut is not None else 10.0 * model.rho_atm
 
+    if restart_every_orbits:
+        restart_block = (
+            "\n<output4>\n"
+            "file_type  = rst         # restart dump: the whole state, for athena -r\n"
+            f"dt         = {restart_every_orbits * model.P_orb:<12.6g}"
+            f"# every {restart_every_orbits:g} orbits\n")
+    else:
+        restart_block = ""
+
     body = TEMPLATE.format(
+        restart_block=restart_block,
         fmt=fmt, dt_out=model.P_orb / frames_per_orbit, fpo=frames_per_orbit,
         cfl=cfl, tlim=orbits * model.P_orb, nx1=nx1, nx2=nx2, mb1=mb1, mb2=mb2, dr=g["dr"],
         x1min=g["x1min"], x1max=g["x1max"], gamma=model.gamma, dfloor=dfloor, pfloor=pfloor,
@@ -184,6 +201,11 @@ def main(argv=None):
     ap.add_argument("--nx2", type=int, default=128)
     ap.add_argument("--meshblock", type=int, nargs=2, default=None, metavar=("N1", "N2"))
     ap.add_argument("--cfl", type=float, default=0.4)
+    ap.add_argument("--restart-every-orbits", type=float, default=None,
+                    dest="restart_every_orbits",
+                    help="emit an <output4> rst block at this cadence, so the run can "
+                         "be continued with athena -r (build.sh resume=yes). Omitted "
+                         "by default: .rst dumps hold the whole state and are large")
     ap.add_argument("--format", default="tab", choices=["tab", "hdf5"],
                     dest="fmt", help="output file_type for out1/out2")
     a = ap.parse_args(argv)
@@ -191,7 +213,8 @@ def main(argv=None):
     model = DiskModel(M_bh=a.M_bh, T_0=a.T0, mu=a.mu, chi=a.chi, rho_0=a.rho0,
                       gamma=a.gamma, C_prime=a.C_prime, alpha=a.alpha,
                       rho_atm=a.rho_atm)
-    text = build(model, orbits=a.orbits, frames_per_orbit=a.frames_per_orbit,
+    text = build(model, restart_every_orbits=a.restart_every_orbits,
+                 orbits=a.orbits, frames_per_orbit=a.frames_per_orbit,
                  nx1=a.nx1, nx2=a.nx2, meshblock=a.meshblock, cfl=a.cfl, fmt=a.fmt)
 
     if a.output:

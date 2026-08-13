@@ -40,6 +40,11 @@ RUN_SETUP = dict(
     meshblock=None,     # (n1, n2), or None for a single block
     cfl=0.4,
     fmt="tab",          # "tab" or "hdf5"
+    # Emit an <output4> rst block every N orbits, so a killed run can be continued
+    # with `./build.sh` + resume="yes" (or ./sweep.sh). None = no restart dumps, and
+    # then nothing can be resumed. A .rst holds the whole state, so keep this well
+    # above frames_per_orbit or the run directory fills with them.
+    restart_every_orbits=None,
 )
 # Where the generated file goes, relative to the repository root.
 RUN_OUTPUT = "inputs/hydro/athinput.acc_disk_visc"

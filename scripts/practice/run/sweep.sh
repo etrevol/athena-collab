@@ -4,7 +4,8 @@
 # ==============================================================================
 #
 #  USAGE (from repo root):
-#    bash scripts/sweep.sh [--dry-run]
+#    bash scripts/practice/run/sweep.sh [--dry-run]
+#    bash scripts/practice/run/sweep.sh --resume [SWEEP_DIR]
 #    nohup bash scripts/practice/run/sweep.sh > /dev/null 2>&1 & echo $!
 #
 #  DESCRIPTION:
@@ -27,6 +28,29 @@
 #        status                 – COMPLETED | KILLED_HANG | FAILED | UNKNOWN
 #        start_time / end_time  – Unix timestamps
 #        data/                  – Athena++ output files (*.tab, *.hst, …)
+#
+#  RESUMING:
+#    --resume [SWEEP_DIR] reopens an existing sweep instead of starting a new
+#    one; without an argument it takes the newest under results/sweeps/. Tests
+#    whose status is COMPLETED are skipped. Every other test is retried, and if
+#    its data/ holds a .rst dump the retry continues from the newest one with
+#    `athena -r` rather than starting that test over.
+#
+#    That needs the input template to declare an `rst` output block - set
+#    RUN_SETUP["restart_every_orbits"] in scripts/theory/disk_model.py, or add
+#    an <output4> file_type = rst block by hand. Without one a --resume run
+#    simply re-runs the unfinished tests from the beginning, which is still
+#    useful but throws away the CPU time already spent.
+#
+#    Nothing here is specific to this problem generator: the restart file is
+#    found on disk and handed to athena as-is, so any input file with an rst
+#    block resumes the same way.
+#
+#    Known consequence, from Athena++ rather than from this script: on resume
+#    the .hst file is appended to, keeping the rows written between the restart
+#    dump and the interruption, so its time column steps backwards once at the
+#    join. The .tab/.athdf frames are numbered by output index and overwrite
+#    cleanly.
 #
 # ==============================================================================
 
@@ -123,7 +147,33 @@ SWEEP_LABEL="sweep-$(date +%Y%m%d-%H%M%S)"
 SWEEP_DIR="${RESULTS_BASE}/${SWEEP_LABEL}"
 
 DRY_RUN=0
-[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
+RESUME=0
+RESUME_DIR=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1 ;;
+    --resume)
+      RESUME=1
+      # an optional path may follow; anything starting with - is the next flag
+      if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then RESUME_DIR="$2"; shift; fi
+      ;;
+    *) echo "sweep.sh: unknown argument '$1'" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+if [[ "$RESUME" -eq 1 ]]; then
+  if [[ -z "$RESUME_DIR" ]]; then
+    RESUME_DIR=$(ls -1dt "${RESULTS_BASE}"/sweep-*/ 2>/dev/null | head -n1)
+    RESUME_DIR="${RESUME_DIR%/}"
+  fi
+  if [[ -z "$RESUME_DIR" || ! -d "$RESUME_DIR" ]]; then
+    echo "sweep.sh: --resume given but no sweep directory found under ${RESULTS_BASE}/" >&2
+    exit 1
+  fi
+  SWEEP_DIR="$(cd "$RESUME_DIR" && pwd)"
+  SWEEP_LABEL="$(basename "$SWEEP_DIR")"
+fi
 
 # Global PID of currently running Athena++ (for Ctrl+C cleanup)
 CURRENT_ATHENA_PID=""
@@ -335,13 +385,23 @@ run_test() {
   local test_dir="$2"
   local input_file="$3"
   local bin_path="${4:-${ATHENA_BIN}}"  # 4th arg: binary to use (defaults to ATHENA_BIN)
+  local restart_file="${5:-}"           # 5th arg: continue from this .rst, if any
   local data_dir="${test_dir}/data"
   local log_file="${test_dir}/run.log"
   local status_file="${test_dir}/status"
 
   # ── dry run ──────────────────────────────────────────────────────────────
+  # -r continues from a restart dump and takes everything else from it, so no
+  # -i is passed then; that is also what keeps this problem-agnostic.
+  local -a athena_args
+  if [[ -n "$restart_file" ]]; then
+    athena_args=(-p -r "$restart_file")
+  else
+    athena_args=(-p -i "$input_file")
+  fi
+
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    info "  [DRY RUN] Would execute: ${bin_path} -p -i ${input_file}"
+    info "  [DRY RUN] Would execute: ${bin_path} ${athena_args[*]}"
     echo "DRY_RUN" > "$status_file"
     echo "$(date +%s)" > "${test_dir}/start_time"
     echo "$(date +%s)" > "${test_dir}/end_time"
@@ -370,12 +430,12 @@ run_test() {
     {
       echo $BASHPID > "$pid_file"
       exec mpirun -np "$NUM_MPI_PROCS" \
-           ${run_cmd} "${bin_path}" -p -i "$input_file" 2>&1
+           ${run_cmd} "${bin_path}" "${athena_args[@]}" 2>&1
     } | tr '\r' '\n' > "$log_file" &
   else
     {
       echo $BASHPID > "$pid_file"
-      exec ${run_cmd} "${bin_path}" -p -i "$input_file" 2>&1
+      exec ${run_cmd} "${bin_path}" "${athena_args[@]}" 2>&1
     } | tr '\r' '\n' > "$log_file" &
   fi
 
@@ -731,17 +791,22 @@ info "  Problem      : ${PROBLEM}"
 info "  Tests        : ${#TESTS[@]}"
 info "  Hang timeout : ${HANG_TIMEOUT} s"
 info "  Sweep dir    : ${SWEEP_DIR}"
+[[ "$RESUME" -eq 1 ]] && info "  Mode         : RESUME (completed tests are skipped)"
 [[ "$DRY_RUN" -eq 1 ]] && info "  Mode         : DRY RUN (no simulations run)"
 info "════════════════════════════════════════════════════════"
 
 # Copy source file and input template into the sweep root for provenance
+# On resume they are left alone: the sweep must keep the source and template it
+# actually ran with, not whatever is in the repository now.
 _src="${REPO_DIR}/src/pgen/${PROBLEM}.cpp"
-if [[ -f "$_src" ]]; then
-  cp "$_src" "${SWEEP_DIR}/${PROBLEM}.cpp"
-  info "Source snapshot → ${SWEEP_DIR}/${PROBLEM}.cpp"
+if [[ "$RESUME" -eq 0 ]]; then
+  if [[ -f "$_src" ]]; then
+    cp "$_src" "${SWEEP_DIR}/${PROBLEM}.cpp"
+    info "Source snapshot → ${SWEEP_DIR}/${PROBLEM}.cpp"
+  fi
+  cp "${INPUT_TEMPLATE}" "${SWEEP_DIR}/$(basename "${INPUT_TEMPLATE}")"
+  info "Input template  → ${SWEEP_DIR}/$(basename "${INPUT_TEMPLATE}")"
 fi
-cp "${INPUT_TEMPLATE}" "${SWEEP_DIR}/$(basename "${INPUT_TEMPLATE}")"
-info "Input template  → ${SWEEP_DIR}/$(basename "${INPUT_TEMPLATE}")"
 echo ""
 
 # ── MAIN LOOP ─────────────────────────────────────────────────────────────────
@@ -760,6 +825,21 @@ for i in "${!TESTS[@]}"; do
   mkdir -p "$data_dir"
   ALL_TEST_DIRS+=("$test_dir")
   echo "$params" > "${test_dir}/params.txt"
+
+  # ── Resume bookkeeping ────────────────────────────────────────────────────
+  test_restart=""
+  if [[ "$RESUME" -eq 1 ]]; then
+    prev_status=""
+    [[ -f "${test_dir}/status" ]] && prev_status=$(cat "${test_dir}/status")
+    if [[ "$prev_status" == "COMPLETED" ]]; then
+      info "Test ${test_num}/${#TESTS[@]}: ${dir_name} - already COMPLETED, skipping"
+      continue
+    fi
+    # newest .rst in this test's data/. *.final.rst (written when athena hits a
+    # -t wall limit) sorts alongside the periodic dumps and -t picks whichever
+    # was written last, which is what we want either way.
+    test_restart=$(ls -1t "${data_dir}"/*.rst 2>/dev/null | head -n1)
+  fi
 
   # ── Resolve binary (build-time params: b_flux, b_nghost) ─────────────────
   test_flux="$DEFAULT_FLUX"
@@ -785,24 +865,36 @@ for i in "${!TESTS[@]}"; do
 
   # Copy the plotting scripts next to the data so the test directory is self-contained.
   # athena_data.py is the reader they all import and must travel with them.
-  for _vis in athena_data.py vis1d.py vis2d.py vishst.py visforces.py; do
+  for _vis in athena_data.py vis.py vis1d.py vis2d.py vishst.py visforces.py athvis.py; do
     [[ -f "${REPO_DIR}/scripts/practice/vis/${_vis}" ]] && \
       cp "${REPO_DIR}/scripts/practice/vis/${_vis}" "${test_dir}/"
   done
 
-  # Prepare modified input file (b_* keys are silently skipped by apply_params)
+  # Prepare modified input file (b_* keys are silently skipped by apply_params).
+  # A resumed test keeps the input it ran with; overwriting it here would let a
+  # since-edited template silently change what the run is supposed to be, and on
+  # a -r continuation the file is not even read.
   local_input="${test_dir}/athinput.in"
-  cp "${INPUT_TEMPLATE}" "$local_input"
-  apply_params "$local_input" "$params"
+  if [[ "$RESUME" -eq 0 || ! -f "$local_input" ]]; then
+    cp "${INPUT_TEMPLATE}" "$local_input"
+    apply_params "$local_input" "$params"
+  fi
 
   sep
   info "Test ${test_num}/${#TESTS[@]}: ${dir_name}"
   info "  Params: ${params}"
   info "  Binary: $(basename "$test_bin")  (flux=${test_flux}, nghost=${test_nghost})"
+  if [[ -n "$test_restart" ]]; then
+    info "  Continuing from: $(basename "$test_restart")"
+  elif [[ "$RESUME" -eq 1 ]]; then
+    info "  No .rst in data/ - restarting this test from the beginning"
+    rm -f "${data_dir}"/*.tab "${data_dir}"/*.athdf "${data_dir}"/*.athdf.xdmf \
+          "${data_dir}"/*.hst
+  fi
 
   # Change to data dir so Athena writes output there; use absolute paths
   pushd "$data_dir" > /dev/null
-  run_test "$test_num" "$test_dir" "$local_input" "$test_bin"
+  run_test "$test_num" "$test_dir" "$local_input" "$test_bin" "$test_restart"
   popd > /dev/null
 
   echo ""
