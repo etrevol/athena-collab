@@ -74,6 +74,8 @@ doc/doxy*
 /scripts/*
 !/scripts/practice
 !/scripts/theory
+!/scripts/analysis
+!/scripts/run
 /materials
 /results
 .github
