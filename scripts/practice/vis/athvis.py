@@ -1,59 +1,178 @@
 #!/usr/bin/env python3
-"""
-=============================================================================
-ATHENA++ VISUALIZATION - standalone, single-file, full feature set
-=============================================================================
+"""athvis - plots for an Athena++ run, in one file with no imports of its own.
 
-A self-contained alternative to vis1d.py / vis2d.py / vishst.py / visforces.py /
-athena_data.py: this ONE file imports none of them. Copy it anywhere and it runs
-with numpy + matplotlib on the path; pypalettes is used if present, with a
-measured fallback palette if not.
+Everything the four-script setup (vis2d/vis1d/vishst/visforces + athena_data)
+does, in a single file that imports only numpy and matplotlib. Copy it into a
+run directory, or anywhere else, and it works; nothing else has to come with it.
+pypalettes is used for colours when installed and falls back to a built-in
+palette when it is not.
 
-Scope, so what's here vs. the four-script setup is explicit:
-    - .tab only, no .athdf. Every run in this project produces .tab; the athdf
-      reader lives in athena_read.py (upstream Athena++, not duplicated here).
-    - single AND multi meshblock supported (blocks are joined onto one grid,
-      same algorithm as athena_data.py's _read_tab_blocks).
-    - every plot mode of vis2d.py: heatmaps, radial/azimuthal profiles, polar
-      view, the three animations (cartesian, polar, vector-only), the full
-      vector overlay (component/frame/quiver+stream/scale/clip), the model-
-      parameter annotation, --normalize azimuthal, --cmap_palette.
-    - vis1d.py's evolution animation (the radial profile *line* animated over
-      time - distinct from vis2d's heatmap animations).
-    - vishst.py's three modes (default/all/custom) over the .hst file.
-    - visforces.py's four modes over the uov (output2) .tab files.
-    - NOT reproduced: --vec_lattice square/hex (polar-ring lattice only, which
-      is centred on the origin by construction and needs no square/hex fix at
-      all - see athena_data.py's history for why the other two needed one),
-      model-info's derived quantities (H/r, orbits-to-accrete - those need
-      scripts/theory/disk_model.py, which this file does not import; raw
-      athinput values are shown instead), parallel frame sampling for animation
-      colour ranges (sequential here - slower on very long runs, far less
-      code), and GPU array handling (the four scripts' own to_gpu hook was
-      already a no-op).
+    python3 athvis.py <command> [flags]
+    python3 athvis.py <command> --help      # every flag of one command
 
-USAGE:
-    python3 vis_standalone.py <subcommand> [options]
+With no --data_dir it looks for ./data, then ../data, then . - so it runs
+unchanged both inside a run directory and one level above it.
 
-SUBCOMMANDS (one per area of the four-script setup):
-    2d       heatmaps / radial / azimuthal / polar / the three animations /
-             vectors - everything vis2d.py does
-    1d       radial profile + its evolution animation - vis1d.py
-    hst      .hst time series - vishst.py
-    forces   uov force-balance plots - visforces.py
+Reads .tab only. Every run in this project writes .tab (the athinput's
+`file_type = tab`), and the .athdf reader is upstream Athena++ code that this
+file deliberately does not duplicate. Single- and multi-meshblock runs both
+work: blocks are joined onto one grid.
 
-Each subcommand's flags mirror the corresponding script's own as closely as the
-single-file, no-multiprocessing scope allows; --help on any subcommand lists them.
 
-EXAMPLES:
-    python3 vis_standalone.py 2d --mode polar --add-vectors --vec_frame full
-    python3 vis_standalone.py 2d --mode vector_animation --vec_comp radial
-    python3 vis_standalone.py 2d --mode polar --info physics --info_pos box
-    python3 vis_standalone.py 1d --mode animation
-    python3 vis_standalone.py hst --mode all
-    python3 vis_standalone.py forces --mode animation --log
+COMMANDS
+--------
+2d       heatmaps, radial and azimuthal profiles, the polar view, three
+         animations, and the velocity-vector overlay
+1d       azimuthally averaged radial profiles, and their evolution animation
+hst      the .hst history file as time series
+forces   the radial force balance from the uov output (output id 2)
 
-=============================================================================
+
+FLAGS EVERY COMMAND TAKES
+-------------------------
+--data_dir DIR      where the frames are      (default: ./data, ../data, .)
+--output_dir DIR    where figures are written (default: figs_athvis_<command>)
+--output_id N       which <outputN> block to read (2d/1d: 1, forces: 2)
+--dpi N             raster resolution                             (default 150)
+--title TEMPLATE    replaces the built-in caption. {time}, {cycle} and {frame}
+                    are substituted; an unknown field falls back to the default
+                    instead of failing part-way through an animation
+--palette NAME      pypalettes palette for line colours. It is measured before
+                    use - contrast against white, pairwise separation, and
+                    separation under all three dichromacies - and rejected with
+                    a note if it fails, rather than silently producing a figure
+                    two of whose curves are the same colour to a deuteranope
+
+2d, 1d and forces additionally take:
+
+--start_frame N     first frame to use
+--end_frame N       last frame to use
+--num_workers N     processes used to sample animation colour ranges
+                    (default: half the cores)
+
+
+2d
+--
+--mode MODE         all (default) | heatmaps | radial | azimuthal | polar |
+                    animation | polar_animation | vector_animation
+--frame N           which frame the still figures use      (default: the last)
+--fps N             animation frame rate                             (default 10)
+--subsample N       use every Nth frame in animations                (default 1)
+--r_min / --r_max        radial window
+--phi_min / --phi_max    azimuthal window, in radians
+--normalize MODE    none (default) | azimuthal. `azimuthal` plots every field as
+                    its deviation from the azimuthal mean - rho/<rho> - 1 and
+                    p/<p> - 1, v - <v> for the velocities. Without it a growing
+                    Papaloizou-Pringle mode is invisible: it is a percent-level
+                    perturbation on a background spanning eight decades, so the
+                    polar view of a disk with a healthy m = 2 mode looks round.
+                    It also switches to a diverging colormap and linear scaling,
+                    the result being signed.
+--vmin_percentile P      lower colour-scale percentile for animations (default 2)
+--vmax_percentile P      upper                                       (default 98)
+--cmap_palette NAME pypalettes continuous map replacing the field colormaps.
+                    Off by default on purpose: inferno and plasma are
+                    perceptually uniform and RdBu_r is properly diverging, while
+                    most library palettes are neither, so an arbitrary swap
+                    misrepresents the field rather than merely restyling it.
+
+Vector overlay (2d), all off unless --add-vectors is given:
+
+--add-vectors       draw the vector field on top of the maps
+--vec_field F       velocity (default) | momentum (rho * v)
+--vec_comp C        both (default) | radial | azimuthal - zeroes the other one
+--vec_frame F       perturbation (default) | full. The orbital motion is two
+                    orders of magnitude larger than everything else, so `full`
+                    on a rotating disk shows the rotation and nothing else;
+                    `perturbation` subtracts the azimuthal mean first
+--vec_panels P      last (default) | all - which panels get the overlay
+--vec_style S       quiver (default) | stream
+--vec_lattice L     polar (default) | square | hex - where arrows sit on the
+                    polar view: rings of constant r, a Cartesian lattice, or a
+                    triangular one. All three are centred on the origin by
+                    construction
+--vec_arrows N      arrows across the radial extent               (default 8)
+--vec_stride N      r-phi panels only: take every Nth cell instead of deriving
+                    the step from --vec_arrows
+--vec_scale S       log (default) | sqrt | linear - how length maps to magnitude
+--vec_clip P        percentile at which arrow length saturates    (default 92).
+                    A few cells at the disk surface carry velocities orders of
+                    magnitude above the interior; unclipped they set the scale
+                    and every other arrow collapses to a dot
+--vec_color C       arrow / streamline colour                  (default black)
+--vec_density D     streamline density, --vec_style stream       (default 0.6)
+
+Model annotation (2d):
+
+--info SPEC         none | min | default (default) | physics | full, or a
+                    comma-separated list of keys: alpha, nu_iso, gamma,
+                    C_prime, r_center, rho_atm, M_bh, T_0, mu, chi, grid, hr,
+                    N_orbits. `hr` and `N_orbits` are derived here from gamma
+                    and C_prime - H/r = sqrt((gamma-1)(0.5-C\')) and
+                    N = 1/(2 pi alpha (H/r)^2) - both of which are independent
+                    of black hole mass and temperature
+--info_pos POS      box (default, top-left) | subtitle | footer
+--info_on WHICH     polar (default) | all - which animations get annotated
+--params PATH       athinput to read the model from. Found automatically by
+                    walking up from the data directory when omitted
+
+
+1d
+--
+--mode MODE         all (default) | profiles | animation
+--frame N           which frame the still figure uses       (default: the last)
+--fps N / --subsample N                     as for 2d
+--r_min / --r_max / --phi_min / --phi_max   as for 2d
+--normalize MODE    none (default) | azimuthal, as for 2d
+--linear            linear y-axis for density and pressure (default: log; a log
+                    axis is skipped automatically where the profile is not
+                    strictly positive)
+
+
+hst
+---
+--mode MODE         default (disk_mass and mdot_in on shared axes) | all (every
+                    column) | custom (--vars)
+--vars A B ...      columns to plot, for --mode custom
+--linear_scale VAR ...   columns to draw linearly instead of on a log axis
+--linear            linear y-axis for every column
+--figsize W H       per-figure size in inches                 (default 9 5)
+--grid              heavier grid; a light one is always drawn
+
+The columns this project's problem generator adds, and which are worth asking
+for by name: disk_mass and disk_L (the disk body alone - disk_L is the
+conserved angular momentum, unlike Athena++'s built-in 2-mom, which has no
+lever arm), mdot_in and mdot_out, n_dfloor / n_pfloor / rho_min / p_min (floor
+activations per cycle and the margin that survived), max_vr, dt_hyd and
+dt_visc.
+
+
+forces
+------
+--mode MODE         all (default) | frame | sum | animation | sum_animation
+--frame N           which frame the still figures use       (default: the last)
+--fps N / --subsample N / --r_min / --r_max      as for 2d
+--log               symlog y-axis, for the eight decades between disk and
+                    ambient
+--linthresh X       linear region of the symlog axis           (default 1e2)
+
+The uov fields are f_grav, f_centr, f_press and f_sum, computed by the problem
+generator with the solver's own discrete operators - face fluxes and the
+geometric factor - so f_sum is the discrete residual, not the error of a
+centred difference. At t = 0 the flux arrays are still empty, so the first
+frame's residual is meaningless; start at frame 1 if it looks wrong.
+
+
+EXAMPLES
+--------
+    python3 athvis.py 2d
+    python3 athvis.py 2d --mode polar --normalize azimuthal
+    python3 athvis.py 2d --mode polar --add-vectors --vec_lattice hex
+    python3 athvis.py 2d --mode vector_animation --vec_comp radial --fps 15
+    python3 athvis.py 2d --mode polar_animation --info physics --subsample 2
+    python3 athvis.py 1d --mode animation --start_frame 50
+    python3 athvis.py hst --mode custom --vars disk_mass disk_L max_vr
+    python3 athvis.py forces --mode sum_animation --log
 """
 
 import argparse
@@ -68,7 +187,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from matplotlib.colors import LogNorm, Normalize
+from multiprocessing import Pool, cpu_count
+from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
+
+# background for the vector panels: muted so black arrows stay legible on top of it.
+# Plain "Greys" saturates to black exactly where the disk is, i.e. where the arrows are
+VEC_BG_CMAP = LinearSegmentedColormap.from_list("vecbg", ["#ffffff", "#a8a8a8"])
 
 # =============================================================================
 # PALETTE - the same measurement athena_data.line_colors()/check_palette() do,
@@ -296,15 +420,43 @@ def read_hst(data_dir):
 # no-cross-file-imports point of this script; the raw athinput values are not.
 # =============================================================================
 INFO_KEYS = ["alpha", "nu_iso", "gamma", "C_prime", "r_center", "rho_atm",
-            "M_bh", "T_0", "mu", "chi", "grid"]
+            "M_bh", "T_0", "mu", "chi", "grid", "hr", "N_orbits"]
 INFO_PRESETS = {
     "none": [],
     "default": ["alpha", "gamma", "grid", "C_prime", "r_center"],
     "min": ["alpha", "nu_iso", "gamma", "grid"],
-    "physics": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "rho_atm"],
+    "physics": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "rho_atm",
+                "hr", "N_orbits"],
     "full": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "rho_atm",
-            "M_bh", "T_0", "mu", "chi"],
+            "hr", "N_orbits", "M_bh", "T_0", "mu", "chi"],
 }
+
+
+def _derived_hr(gamma, c_prime):
+    """H/r at the density maximum = sqrt((gamma-1)(0.5-C')).
+
+    Written out rather than imported from scripts/theory/disk_model.py, which
+    would defeat this file's whole point. Worth knowing why the formula is this
+    short: for the Papaloizou-Pringle torus p/rho is normalised to the local
+    gravity, so beta - and with it M_bh, T_0, mu and chi - cancels out of the
+    ratio entirely. Only gamma and C' survive.
+    """
+    if gamma is None or c_prime is None or gamma <= 1 or c_prime >= 0.5:
+        return None
+    return ((gamma - 1.0) * (0.5 - c_prime)) ** 0.5
+
+
+def _derived_orbits_to_accrete(alpha, gamma, c_prime):
+    """N = 1 / (2 pi alpha (gamma-1) (0.5-C')), i.e. 1/(2 pi alpha (H/r)^2).
+
+    Independent of black hole mass and temperature, for the same reason as H/r.
+    """
+    if not alpha or alpha <= 0:
+        return None
+    hr = _derived_hr(gamma, c_prime)
+    if not hr:
+        return None
+    return 1.0 / (2.0 * math.pi * alpha * hr * hr)
 _ATH_LOOKUP = {"alpha": "problem/alpha", "nu_iso": "problem/nu_iso",
               "gamma": "hydro/gamma", "C_prime": "problem/C_prime",
               "r_center": "problem/r_center", "rho_atm": "problem/rho_atm",
@@ -321,7 +473,10 @@ def find_athinput(data_dir, explicit=None):
             p = os.path.join(here, cand)
             if os.path.isfile(p):
                 return p
-        hits = sorted(h for h in glob.glob(os.path.join(here, "athinput.*"))
+        # build.sh and sweep.sh keep the run's copy in materials/ beside data/,
+        # so the athinput is never in the directory the frames are in
+        hits = sorted(h for d in (here, os.path.join(here, "materials"))
+                      for h in glob.glob(os.path.join(d, "athinput.*"))
                       if not h.endswith((".log", ".png", ".mp4")))
         if hits:
             return hits[0]
@@ -376,6 +531,17 @@ def model_info_lines(params, spec):
             if nx1 and nx2:
                 items.append(f"grid {int(nx1)}x{int(nx2)}")
             continue
+        if key == "hr":
+            hr = _derived_hr(g("hydro/gamma"), g("problem/C_prime"))
+            if hr is not None:
+                items.append(f"H/r = {hr:.3f}")
+            continue
+        if key == "N_orbits":
+            n_orb = _derived_orbits_to_accrete(g("problem/alpha"), g("hydro/gamma"),
+                                               g("problem/C_prime"))
+            if n_orb is not None:
+                items.append(f"{n_orb:.0f} orbits to accrete")
+            continue
         v = g(_ATH_LOOKUP[key])
         if v is None:
             continue
@@ -411,7 +577,64 @@ def vector_field(data, comp="both", frame="full"):
     return u_r, u_phi, degenerate, rel
 
 
+def _nearest(axis, values):
+    """Index of the closest cell centre, not merely the insertion point."""
+    idx = np.clip(np.searchsorted(axis, values), 1, len(axis) - 1)
+    left = np.abs(values - axis[idx - 1]) <= np.abs(axis[np.minimum(idx, len(axis) - 1)]
+                                                    - values)
+    return np.clip(np.where(left, idx - 1, idx), 0, len(axis) - 1)
+
+
+def grid_lattice(r, phi, n, hexagonal=False):
+    """Cartesian (or triangular) lattice clipped to the annulus.
+
+    Both families are built as integer multiples of the step about the origin.
+    Starting from -r_max and stepping - the obvious way - only lands on the
+    centre when the diameter happens to be a whole number of steps; done that
+    way the whole pattern sits off centre and overshoots the outer edge.
+    `hexagonal` offsets alternate rows by half a step (still symmetric about
+    x = 0) and compresses row spacing by sqrt(3)/2, the arrangement where every
+    point is equidistant from all six of its neighbours.
+
+    Returns (j, i, r_exact, phi_exact): the indices say which cell to read the
+    field from, the last two say where to draw. Drawing at cell centres instead
+    would quantise the lattice to the mesh - 2.8 degrees per cell at nphi = 128.
+    """
+    n = max(2, n)
+    r0, r1 = float(r[0]), float(r[-1])
+    d = (r1 - r0) / n
+    if d <= 0:
+        return (np.zeros(0, int),) * 2 + (np.zeros(0),) * 2
+    row_step = d * (np.sqrt(3.0) / 2.0 if hexagonal else 1.0)
+    m = int(np.ceil(r1 / row_step))
+    k_max = int(np.ceil(r1 / d)) + 1
+    cols = np.arange(-k_max, k_max + 1, dtype=float)
+    X, Y = [], []
+    for row in range(-m, m + 1):
+        xs = (cols + 0.5) * d if (hexagonal and row % 2) else cols * d
+        X.append(xs)
+        Y.append(np.full(xs.shape, row * row_step))
+    X, Y = np.concatenate(X), np.concatenate(Y)
+    rr = np.hypot(X, Y)
+    keep = (rr >= r0) & (rr <= r1)
+    if not keep.any():
+        return (np.zeros(0, int),) * 2 + (np.zeros(0),) * 2
+    X, Y, rr = X[keep], Y[keep], rr[keep]
+    pp = np.mod(np.arctan2(Y, X), 2.0 * np.pi)
+    return _nearest(phi, pp), _nearest(r, rr), rr, pp
+
+
 def polar_ring_lattice(r, phi, n_rings):
+    """Lattice that is uniform in PHYSICAL space, not in index space.
+
+    A fixed index stride puts the same number of arrows on every ring, so they
+    crowd together towards the axis where the rings are short. Instead place
+    rings a fixed distance d apart and space arrows d apart *along* each ring.
+    Concentric by construction, so it is centred on the origin whatever the step
+    works out to.
+
+    Returns the same (j, i, r_exact, phi_exact) as grid_lattice().
+    """
     r0, r1 = float(r[0]), float(r[-1])
     d = (r1 - r0) / max(2, n_rings)
     if d <= 0:
@@ -422,8 +645,7 @@ def polar_ring_lattice(r, phi, n_rings):
         i = int(np.argmin(np.abs(r - rk)))
         n_arrow = max(3, int(round(2.0 * np.pi * rk / d)))
         angles = 2.0 * np.pi * (np.arange(n_arrow) + 0.5) / n_arrow
-        idx = np.clip(np.searchsorted(phi, angles), 0, len(phi) - 1)
-        js.append(idx); iss.append(np.full(n_arrow, i))
+        js.append(_nearest(phi, angles)); iss.append(np.full(n_arrow, i))
         rr.append(np.full(n_arrow, rk)); pp.append(angles)
     return (np.concatenate(js), np.concatenate(iss),
             np.concatenate(rr), np.concatenate(pp))
@@ -520,16 +742,29 @@ def _quiver_uv(data, a, polar):
     if degenerate:
         return None, rel
     if polar:
-        j, i, Rs, Phis = polar_ring_lattice(r, phi, a.vec_arrows)
+        lat = getattr(a, "vec_lattice", "polar")
+        if lat == "polar":
+            j, i, Rs, Phis = polar_ring_lattice(r, phi, a.vec_arrows)
+        else:
+            j, i, Rs, Phis = grid_lattice(r, phi, a.vec_arrows,
+                                          hexagonal=(lat == "hex"))
         ur, up = u_r[j, i], u_phi[j, i]
+        # true Cartesian components: on a polar axes matplotlib draws quiver's
+        # U,V as screen offsets, and screen space there is Cartesian
         U = ur * np.cos(Phis) - up * np.sin(Phis)
         V = ur * np.sin(Phis) + up * np.cos(Phis)
         return (Phis, Rs, U, V, None), None
-    stride = max(1, len(r) // a.vec_arrows)
-    sl = (slice(None, None, stride), slice(None, None, stride))
+    # r-phi panels are a plain rectangular grid, so decimate each axis on its own
+    # count - a single stride would give nphi/nx1 times too many arrows one way
+    def stride(n):
+        if getattr(a, "vec_stride", None):
+            return max(1, int(a.vec_stride))
+        return max(1, int(round(n / float(a.vec_arrows))))
+
+    sl = (slice(None, None, stride(len(phi))), slice(None, None, stride(len(r))))
     Rs, Phis = R[sl], Phi[sl]
     U, V = u_r[sl], u_phi[sl] / np.maximum(Rs, 1e-30)
-    return (Rs, Phis, U, V, stride), None
+    return (Rs, Phis, U, V, stride(len(r))), None
 
 
 def update_vectors(ax, data, a, polar, artists=None, scale_data=None):
@@ -614,6 +849,21 @@ VARS_2D = {
 }
 
 
+def format_title(default, a, **fields):
+    """--title overrides the built-in caption. {time}, {cycle} and {frame} are
+    substituted; an unknown placeholder falls back to the default rather than
+    raising part-way through a long animation."""
+    template = getattr(a, "title", None)
+    if not template:
+        return default
+    try:
+        return template.format(**fields)
+    except (KeyError, IndexError, ValueError) as exc:
+        print(f"  note: --title {template!r} could not be formatted ({exc}); "
+              f"using the default")
+        return default
+
+
 def _norm(field, info):
     if info["log"] and np.all(field > 0):
         return LogNorm(vmin=field.min(), vmax=field.max())
@@ -624,18 +874,20 @@ def _norm(field, info):
     return Normalize(vmin=-vmax, vmax=vmax)
 
 
-def apply_bounds(data, a):
+def _apply_bounds_raw(data, r_min, r_max, phi_min, phi_max):
+    """apply_bounds() with plain arguments, so a multiprocessing worker can call
+    it without shipping the argparse namespace across the process boundary."""
     r, phi = data["r"], data["phi"]
     rmask = np.ones_like(r, dtype=bool)
-    if a.r_min is not None:
-        rmask &= r >= a.r_min
-    if a.r_max is not None:
-        rmask &= r <= a.r_max
+    if r_min is not None:
+        rmask &= r >= r_min
+    if r_max is not None:
+        rmask &= r <= r_max
     pmask = np.ones_like(phi, dtype=bool)
-    if a.phi_min is not None:
-        pmask &= phi >= a.phi_min
-    if a.phi_max is not None:
-        pmask &= phi <= a.phi_max
+    if phi_min is not None:
+        pmask &= phi >= phi_min
+    if phi_max is not None:
+        pmask &= phi <= phi_max
     if rmask.all() and pmask.all():
         return data
     out = dict(data)
@@ -644,6 +896,11 @@ def apply_bounds(data, a):
         if k in data:
             out[k] = data[k][pmask, :][:, rmask]
     return out
+
+
+def apply_bounds(data, a):
+    return _apply_bounds_raw(data, a.r_min, a.r_max,
+                             getattr(a, "phi_min", None), getattr(a, "phi_max", None))
 
 
 def apply_normalize(data, mode):
@@ -679,25 +936,35 @@ def var_info_for(mode):
 def plot_heatmap(data, a, out_path):
     data = apply_normalize(apply_bounds(data, a), a.normalize)
     info_map = var_info_for(a.normalize)
-    fig, axes = plt.subplots(2, 3, figsize=(16, 12))
-    fig.suptitle(f"2D Disk Structure (t={data['time']:.3f}, cycle={data['cycle']})",
+    # the vector field gets a panel of its own, over density: on the v_r and v_phi
+    # panels arrows would only restate what the colour already says
+    n_panels = len(info_map) + (1 if a.add_vectors else 0)
+    ncols = 3 if n_panels > 4 else 2
+    nrows = -(-n_panels // ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5.4 * ncols, 6.0 * nrows),
+                             squeeze=False)
+    fig.suptitle(format_title(f"2D Disk Structure (t={data['time']:.3f}, "
+                              f"cycle={data['cycle']})", a,
+                              time=data['time'], cycle=data['cycle']),
                 fontsize=16, fontweight="bold")
-    for ax, (name, info) in zip(axes.flat, info_map.items()):
+    flat = list(axes.flat)
+    for ax, (name, info) in zip(flat, info_map.items()):
         field = data[name]
         im = ax.pcolormesh(data["R"], data["Phi"], field, cmap=info["cmap"],
                            norm=_norm(field, info), shading="auto")
         ax.set_xlabel("r"); ax.set_ylabel(r"$\phi$ (rad)"); ax.set_title(info["label"])
         plt.colorbar(im, ax=ax); ax.grid(alpha=0.3)
-    ax6 = axes.flat[5]
     if a.add_vectors:
+        axv = flat[len(info_map)]
         rho = data["density"]
-        ax6.pcolormesh(data["R"], data["Phi"], rho, cmap="Greys", shading="auto",
-                       norm=Normalize(rho.min(), rho.max()))
-        cap = overlay_vectors(ax6, data, a, polar=False)
-        ax6.set_xlabel("r"); ax6.set_ylabel(r"$\phi$"); ax6.grid(alpha=0.3)
-        ax6.set_title(vector_caption(a, cap), fontsize=10)
-    else:
-        ax6.remove()
+        axv.pcolormesh(data["R"], data["Phi"], rho, cmap=VEC_BG_CMAP, shading="auto",
+                       norm=(LogNorm(rho[rho > 0].min(), rho.max()) if np.all(rho > 0)
+                             else Normalize(rho.min(), rho.max())))
+        cap = overlay_vectors(axv, data, a, polar=False)
+        axv.set_xlabel("r"); axv.set_ylabel(r"$\phi$"); axv.grid(alpha=0.3)
+        axv.set_title(vector_caption(a, cap), fontsize=10)
+    for ax in flat[n_panels:]:          # a 2x3 grid holding 5 panels has a spare
+        ax.remove()
     fig.tight_layout()
     fig.savefig(out_path, dpi=a.dpi, bbox_inches="tight")
     plt.close(fig)
@@ -707,7 +974,8 @@ def plot_polar(data, a, out_path):
     data = apply_normalize(apply_bounds(data, a), a.normalize)
     info_map = var_info_for(a.normalize)
     fig = plt.figure(figsize=(14, 10))
-    fig.suptitle(f"Polar View of Disk - t={data['time']:.3f}",
+    fig.suptitle(format_title(f"Polar View of Disk - t={data['time']:.3f}", a,
+                              time=data['time'], cycle=data['cycle']),
                 fontsize=16, fontweight="bold")
     last_cap = None
     keys = list(info_map)
@@ -729,19 +997,22 @@ def plot_polar(data, a, out_path):
 
 
 def plot_radial(data, a, out_path):
-    data = apply_bounds(data, a)
+    data = apply_normalize(apply_bounds(data, a), getattr(a, "normalize", "none"))
+    info_map = var_info_for(getattr(a, "normalize", "none"))
     colors = line_colors(4, a.palette)
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-    fig.suptitle(f"Radial Profiles (averaged over phi) - t={data['time']:.3f}",
+    fig.suptitle(format_title(f"Radial Profiles (averaged over phi) - "
+                              f"t={data['time']:.3f}", a,
+                              time=data['time'], cycle=data['cycle']),
                 fontsize=14, fontweight="bold")
     labels = {"density": r"$\langle\rho\rangle_\phi$", "pressure": r"$\langle P\rangle_\phi$",
              "vel_r": r"$\langle v_r\rangle_\phi$", "vel_phi": r"$\langle v_\phi\rangle_\phi$"}
-    for ax, (name, info), color in zip(axes.flat, VARS_2D.items(), colors):
+    for ax, (name, info), color in zip(axes.flat, info_map.items(), colors):
         mean, std = data[name].mean(axis=0), data[name].std(axis=0)
         ax.plot(data["r"], mean, color=color, linewidth=2, label=labels[name])
         ax.fill_between(data["r"], mean - std, mean + std, alpha=0.25, color=color)
         ax.set_xlabel("r"); ax.set_ylabel(labels[name]); ax.legend(); ax.grid(alpha=0.3)
-        if info["log"]:
+        if info["log"] and not getattr(a, "linear", False) and (mean > 0).all():
             ax.set_yscale("log")
     fig.tight_layout()
     fig.savefig(out_path, dpi=a.dpi, bbox_inches="tight")
@@ -754,7 +1025,9 @@ def plot_azimuthal(data, a, out_path):
     idxs = [len(r) // 4, len(r) // 2, 3 * len(r) // 4]
     colors = line_colors(3, a.palette)
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-    fig.suptitle(f"Azimuthal Profiles at Different Radii - t={data['time']:.3f}",
+    fig.suptitle(format_title(f"Azimuthal Profiles at Different Radii - "
+                              f"t={data['time']:.3f}", a,
+                              time=data['time'], cycle=data['cycle']),
                 fontsize=14, fontweight="bold")
     labels = {"density": r"$\rho$", "pressure": "$P$", "vel_r": "$v_r$", "vel_phi": r"$v_\phi$"}
     for ax, (name, info) in zip(axes.flat, VARS_2D.items()):
@@ -770,9 +1043,84 @@ def plot_azimuthal(data, a, out_path):
     plt.close(fig)
 
 
-def _draw_info_box(fig, lines):
+def _sample_one(args):
+    """Worker for global_ranges(). Top-level so multiprocessing can pickle it."""
+    paths, names, bounds, normalize = args
+    try:
+        d = _apply_bounds_raw(read_frame(paths), *bounds)
+        d = apply_normalize(d, normalize)
+        return {nm: np.asarray(d[nm]).ravel() for nm in names if nm in d}
+    except Exception:
+        return None
+
+
+def global_ranges(frames, keys, a, names):
+    """Percentile colour limits sampled across the animation, not from frame 0.
+
+    Taking the scale from the first frame is wrong here in a specific way: frame
+    0 is the initial condition, where v_r = 0 everywhere, so a diverging velocity
+    map would be normalised against nothing and every later frame would clip.
+    Sampling is capped at ~10 frames spread through the run - enough for a stable
+    percentile, cheap enough not to double the animation's cost.
+    """
+    step = max(1, len(keys) // 10)
+    sample_keys = keys[::step]
+    bounds = (a.r_min, a.r_max, getattr(a, "phi_min", None), getattr(a, "phi_max", None))
+    jobs = [(frames[k], names, bounds, getattr(a, "normalize", "none"))
+            for k in sample_keys]
+
+    workers = min(int(getattr(a, "num_workers", 1) or 1), len(jobs))
+    if workers > 1:
+        try:
+            with Pool(processes=workers) as pool:
+                results = pool.map(_sample_one, jobs)
+        except Exception as exc:
+            print(f"  note: parallel sampling unavailable ({exc}); using one process")
+            results = [_sample_one(j) for j in jobs]
+    else:
+        results = [_sample_one(j) for j in jobs]
+
+    info_map = var_info_for(getattr(a, "normalize", "none"))
+    out = {}
+    for name in names:
+        chunks = [r[name] for r in results if r and name in r]
+        if not chunks:
+            continue
+        allv = np.concatenate(chunks)
+        info = info_map[name]
+        lo_p = getattr(a, "vmin_percentile", 2.0)
+        hi_p = getattr(a, "vmax_percentile", 98.0)
+        if info["log"] and np.any(allv > 0):
+            pos = allv[allv > 0]
+            out[name] = LogNorm(vmin=np.percentile(pos, lo_p),
+                                vmax=np.percentile(pos, hi_p))
+        elif info["log"]:
+            out[name] = Normalize(vmin=np.percentile(allv, lo_p),
+                                  vmax=np.percentile(allv, hi_p))
+        else:
+            vmax = np.percentile(np.abs(allv), hi_p)
+            out[name] = Normalize(vmin=-vmax, vmax=vmax)
+    return out
+
+
+def _draw_info_box(fig, lines, a=None, plot="polar"):
+    """Model annotation, placed per --info_pos. --info_on restricts it to the
+    polar animation by default, the one with room for it."""
     if not lines:
         return
+    pos = getattr(a, "info_pos", "box") if a is not None else "box"
+    on = getattr(a, "info_on", "polar") if a is not None else "polar"
+    if on == "polar" and plot != "polar":
+        return
+    if pos == "subtitle":
+        fig.text(0.5, 0.928, "\n".join(lines), ha="center", va="top",
+                 fontsize=9, color="#3c3c3a")
+        return
+    if pos == "footer":
+        fig.text(0.5, 0.012, "\n".join(lines), ha="center", va="bottom",
+                 fontsize=9, color="#3c3c3a")
+        return
+    # box: one item per line, so it stays in the corner however many are asked for
     stacked = "\n".join(item for line in lines for item in line.split("   ") if item)
     fig.text(0.012, 0.988, stacked, ha="left", va="top", fontsize=8.5,
              color="#1a1a19", linespacing=1.5,
@@ -784,17 +1132,18 @@ def animate_heatmap(frames, keys, a, out_path, info_lines):
     first = apply_normalize(apply_bounds(read_frame(frames[keys[0]]), a), a.normalize)
     info_map = var_info_for(a.normalize)
 
+    norms = global_ranges(frames, keys, a, list(info_map))
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle("Disk Evolution", fontsize=16, fontweight="bold")
+    fig.suptitle(format_title("Disk Evolution", a), fontsize=16, fontweight="bold")
     ims = []
     for ax, (name, info) in zip(axes.flat, info_map.items()):
         field = first[name]
         im = ax.pcolormesh(first["R"], first["Phi"], field, cmap=info["cmap"],
-                           norm=_norm(field, info), shading="auto")
+                           norm=norms.get(name) or _norm(field, info), shading="auto")
         ax.set_xlabel("r"); ax.set_ylabel(r"$\phi$"); ax.set_title(info["label"])
         plt.colorbar(im, ax=ax); ax.grid(alpha=0.3)
         ims.append(im)
-    _draw_info_box(fig, info_lines)
+    _draw_info_box(fig, info_lines, a, plot="cartesian")
     time_text = fig.text(0.5, 0.95, "", ha="center", fontsize=12, fontweight="bold")
 
     def update(k):
@@ -816,14 +1165,16 @@ def animate_polar(frames, keys, a, out_path, info_lines):
     last = apply_normalize(apply_bounds(read_frame(frames[keys[-1]]), a), a.normalize)
     info_map = var_info_for(a.normalize)
 
+    norms = global_ranges(frames, keys, a, list(info_map))
     fig = plt.figure(figsize=(14, 10))
-    fig.suptitle("Polar View of Disk Evolution", fontsize=16, fontweight="bold")
+    fig.suptitle(format_title("Polar View of Disk Evolution", a),
+                 fontsize=16, fontweight="bold")
     axes, ims = [], []
     for i, (name, info) in enumerate(info_map.items()):
         ax = plt.subplot(2, 2, i + 1, projection="polar")
         field = first[name]
         im = ax.pcolormesh(first["Phi"], first["R"], field, cmap=info["cmap"],
-                           norm=_norm(field, info), shading="auto")
+                           norm=norms.get(name) or _norm(field, info), shading="auto")
         ax.set_title(info["label"], pad=20); plt.colorbar(im, ax=ax, pad=0.1)
         ax.grid(alpha=0.3)
         axes.append(ax); ims.append(im)
@@ -837,7 +1188,7 @@ def animate_polar(frames, keys, a, out_path, info_lines):
             # initial condition has v_r = 0 everywhere, a bad scale reference
             _, art = update_vectors(ax, first, a, polar=True, scale_data=last)
             vec_state[id(ax)] = art
-    _draw_info_box(fig, info_lines)
+    _draw_info_box(fig, info_lines, a, plot="polar")
     time_text = fig.text(0.5, 0.94, "", ha="center", fontsize=12, fontweight="bold")
 
     def update(k):
@@ -863,16 +1214,19 @@ def animate_vector(frames, keys, a, out_path, info_lines):
     last = read_frame(frames[keys[-1]])   # scale reference: frame 0 has v_r = 0
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection="polar")
-    fig.suptitle("Velocity Field", fontsize=16, fontweight="bold")
+    fig.suptitle(format_title("Velocity Field", a), fontsize=16, fontweight="bold")
     rho = first["density"]
+    norms = global_ranges(frames, keys, a, ["density"])
     lo = rho[rho > 0].min() if np.any(rho > 0) else None
-    bg = ax.pcolormesh(first["Phi"], first["R"], rho, cmap="Greys", shading="auto",
-                       norm=(LogNorm(lo, rho.max()) if lo else Normalize(rho.min(), rho.max())))
+    bg = ax.pcolormesh(first["Phi"], first["R"], rho, cmap=VEC_BG_CMAP, shading="auto",
+                       norm=norms.get("density") or
+                            (LogNorm(lo, rho.max()) if lo
+                             else Normalize(rho.min(), rho.max())))
     plt.colorbar(bg, ax=ax, pad=0.1, fraction=0.04).set_label(r"$\rho$")
     cap, vec_art = update_vectors(ax, first, a, polar=True, scale_data=last)
     ax.grid(alpha=0.3)
     fig.text(0.5, 0.035, vector_caption(a, cap), ha="center", fontsize=12)
-    _draw_info_box(fig, info_lines)
+    _draw_info_box(fig, info_lines, a, plot="vector")
     time_text = fig.text(0.5, 0.93, "", ha="center", fontsize=12, fontweight="bold")
 
     def update(k):
@@ -889,13 +1243,50 @@ def animate_vector(frames, keys, a, out_path, info_lines):
     plt.close(fig)
 
 
+def window_frames(keys, a):
+    """Restrict to [--start_frame, --end_frame]. Subsampling is left to the
+    animation functions, which apply it per animation."""
+    lo = getattr(a, "start_frame", None)
+    hi = getattr(a, "end_frame", None)
+    out = [k for k in keys if (lo is None or k >= lo) and (hi is None or k <= hi)]
+    if not out:
+        raise SystemExit(f"no frames left after --start_frame/--end_frame "
+                         f"({lo}..{hi}); available {keys[0]}..{keys[-1]}")
+    if len(out) != len(keys):
+        print(f"  frame window: {out[0]}..{out[-1]} ({len(out)} frames)")
+    return out
+
+
+def apply_cmap_palette(a):
+    """Swap the 2D scalar colormaps for a continuous pypalettes map, on request.
+
+    Off by default on purpose: inferno and plasma are perceptually uniform and
+    RdBu_r/coolwarm are properly diverging, while most of the library's palettes
+    are neither, so an arbitrary swap misrepresents the field rather than merely
+    restyling it."""
+    name = getattr(a, "cmap_palette", None)
+    if not name:
+        return
+    try:
+        from pypalettes import load_cmap
+        cm = load_cmap(name, cmap_type="continuous")
+        for info in VARS_2D.values():
+            info["cmap"] = cm
+        print(f"2D colormaps replaced by pypalettes '{name}'")
+    except Exception as exc:
+        print(f"  note: --cmap_palette '{name}' unusable ({exc}); keeping the defaults")
+
+
 def cmd_2d(a):
     data_dir = a.data_dir or default_data_dir()
-    out_dir = a.output_dir or "figs_standalone_2d"
+    out_dir = a.output_dir or "figs_athvis_2d"
     os.makedirs(out_dir, exist_ok=True)
     info = discover(data_dir, output_id=a.output_id)
     keys = sorted(info["frames"])
     print(f"{len(keys)} frame(s), {keys[0]}..{keys[-1]}, base '{info['base']}'")
+
+    keys = window_frames(keys, a)
+    apply_cmap_palette(a)
 
     info_lines = []
     if a.info != "none":
@@ -941,12 +1332,14 @@ def cmd_2d(a):
 # 1D (mirrors vis1d.py) - the radial profile evolution *line* animation
 # =============================================================================
 def animate_1d_evolution(frames, keys, a, out_path):
+    """Radial profiles over time. --linear turns off the log y-axis."""
     keys = keys[::max(1, a.subsample)]
     colors = line_colors(4, a.palette)
     labels = {"density": r"Density $\rho$", "pressure": r"Pressure $P$",
              "vel_r": r"Radial Velocity $v_r$", "vel_phi": r"Azimuthal Velocity $v_\phi$"}
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
-    fig.suptitle("Radial Profile Evolution", fontsize=15, fontweight="bold")
+    fig.suptitle(format_title("Radial Profile Evolution", a),
+                 fontsize=15, fontweight="bold")
     first = read_frame(frames[keys[0]])
     lines = {}
     for ax, (name, color) in zip(axes.flat, zip(VARS_2D, colors)):
@@ -974,10 +1367,10 @@ def animate_1d_evolution(frames, keys, a, out_path):
 
 def cmd_1d(a):
     data_dir = a.data_dir or default_data_dir()
-    out_dir = a.output_dir or "figs_standalone_1d"
+    out_dir = a.output_dir or "figs_athvis_1d"
     os.makedirs(out_dir, exist_ok=True)
     info = discover(data_dir, output_id=a.output_id)
-    keys = sorted(info["frames"])
+    keys = window_frames(sorted(info["frames"]), a)
     print(f"{len(keys)} frame(s), {keys[0]}..{keys[-1]}")
 
     if a.mode in ("all", "profiles"):
@@ -1000,7 +1393,7 @@ DEFAULT_HST_VARS = ["disk_mass", "mdot_in"]
 
 def cmd_hst(a):
     data_dir = a.data_dir or default_data_dir()
-    out_dir = a.output_dir or "figs_standalone_hst"
+    out_dir = a.output_dir or "figs_athvis_hst"
     os.makedirs(out_dir, exist_ok=True)
     path, series = read_hst(data_dir)
     time = series["time"]
@@ -1022,29 +1415,39 @@ def cmd_hst(a):
 
     colors = line_colors(len(var_names), a.palette)
 
+    linear_vars = set(a.linear_scale) if getattr(a, "linear_scale", None) else set()
+    grid_alpha = 0.6 if getattr(a, "grid", False) else 0.3
+    figsize = tuple(getattr(a, "figsize", (9.0, 5.0)))
+
     if a.mode == "default" and "disk_mass" in series and "mdot_in" in series:
-        fig, ax1 = plt.subplots(figsize=(10, 6))
+        fig, ax1 = plt.subplots(figsize=(figsize[0] + 1.0, figsize[1] + 1.0))
         c1, c2 = line_colors(2, a.palette)
         ax1.plot(time, series["disk_mass"], color=c1, linewidth=2)
         ax1.set_ylabel("Disk Mass", color=c1); ax1.tick_params(axis="y", labelcolor=c1)
         ax2 = ax1.twinx()
         ax2.plot(time, series["mdot_in"], color=c2, linewidth=2)
         ax2.set_ylabel("Accretion Rate", color=c2); ax2.tick_params(axis="y", labelcolor=c2)
-        ax1.set_xlabel("time"); ax1.grid(alpha=0.3)
+        ax1.set_xlabel("time"); ax1.grid(alpha=grid_alpha)
+        ax1.set_title(format_title("Disk Mass and Accretion Rate", a))
         out = os.path.join(out_dir, "disk_mass_and_mdot.png")
-        fig.tight_layout(); fig.savefig(out, dpi=150); plt.close(fig)
+        fig.tight_layout(); fig.savefig(out, dpi=a.dpi); plt.close(fig)
         print(f"Saved: {out}")
         var_names = [v for v in var_names if v not in ("disk_mass", "mdot_in")]
         colors = line_colors(max(len(var_names), 1), a.palette)
 
     for name, color in zip(var_names, colors):
-        fig, ax = plt.subplots(figsize=(9, 5))
-        ax.plot(time, series[name], color=color, linewidth=1.8)
-        ax.set_xlabel("time"); ax.set_ylabel(name); ax.grid(alpha=0.3)
-        if not a.linear:
+        fig, ax = plt.subplots(figsize=figsize)
+        values = np.asarray(series[name])
+        ax.plot(time, values, color=color, linewidth=1.8)
+        ax.set_xlabel("time"); ax.set_ylabel(name); ax.grid(alpha=grid_alpha)
+        ax.set_title(format_title(f"{name} vs time", a))
+        # a log axis silently drops a column that touches zero or goes negative -
+        # mdot_in and the floor counters both do - so fall back rather than plot
+        # a misleading gap
+        if not a.linear and name not in linear_vars and np.all(values > 0):
             ax.set_yscale("log")
         out = os.path.join(out_dir, f"{name}_vs_time.png")
-        fig.tight_layout(); fig.savefig(out, dpi=150); plt.close(fig)
+        fig.tight_layout(); fig.savefig(out, dpi=a.dpi); plt.close(fig)
         print(f"Saved: {out}")
 
 
@@ -1089,7 +1492,29 @@ def read_uov_frame(paths):
     return out
 
 
+def clip_forces(data, a):
+    """Radial window for the uov frames. They carry no phi bounds - the forces are
+    plotted as azimuthal means - so this is deliberately narrower than
+    apply_bounds()."""
+    r = data["r"]
+    lo, hi = getattr(a, "r_min", None), getattr(a, "r_max", None)
+    if lo is None and hi is None:
+        return data
+    mask = np.ones_like(r, dtype=bool)
+    if lo is not None:
+        mask &= r >= lo
+    if hi is not None:
+        mask &= r <= hi
+    out = dict(data)
+    out["r"] = r[mask]
+    for k in FORCE_KEYS:
+        if k in data:
+            out[k] = data[k][..., mask]
+    return out
+
+
 def plot_forces_frame(data, a, out_path):
+    data = clip_forces(data, a)
     r = data["r"]
     colors = line_colors(4, a.palette)
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -1102,12 +1527,14 @@ def plot_forces_frame(data, a, out_path):
     if a.log:
         ax.set_yscale("symlog", linthresh=a.linthresh or 1e2)
     ax.set_xlabel("r"); ax.set_ylabel("force / mass"); ax.legend(); ax.grid(alpha=0.3)
-    ax.set_title(f"Force balance, t={data['time']:.3f}")
+    ax.set_title(format_title(f"Force balance, t={data['time']:.3f}", a,
+                              time=data['time'], cycle=data['cycle']))
     fig.tight_layout(); fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
 def plot_forces_sum(data, a, out_path):
+    data = clip_forces(data, a)
     r = data["r"]
     color = line_colors(1, a.palette)[0]
     field = data["f_sum"]
@@ -1117,14 +1544,15 @@ def plot_forces_sum(data, a, out_path):
     if a.log:
         ax.set_yscale("symlog", linthresh=a.linthresh or 1e2)
     ax.set_xlabel("r"); ax.set_ylabel(FORCE_LABELS["f_sum"]); ax.grid(alpha=0.3)
-    ax.set_title(f"Net force, t={data['time']:.3f}")
+    ax.set_title(format_title(f"Net force, t={data['time']:.3f}", a,
+                              time=data['time'], cycle=data['cycle']))
     fig.tight_layout(); fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
 def animate_forces(frames, keys, a, out_path, sum_only=False):
     keys = keys[::max(1, a.subsample)]
-    first = read_uov_frame(frames[keys[0]])
+    first = clip_forces(read_uov_frame(frames[keys[0]]), a)
     colors = line_colors(1 if sum_only else 4, a.palette)
     fig, ax = plt.subplots(figsize=(10, 6))
     lines = {}
@@ -1141,8 +1569,9 @@ def animate_forces(frames, keys, a, out_path, sum_only=False):
     title = fig.suptitle("", fontsize=12, fontweight="bold")
 
     def update(k):
-        d = read_uov_frame(frames[keys[k]])
-        title.set_text(f"t = {d['time']:.3f}")
+        d = clip_forces(read_uov_frame(frames[keys[k]]), a)
+        title.set_text(format_title(f"t = {d['time']:.3f}", a,
+                                    time=d['time'], cycle=d['cycle']))
         for key, line in lines.items():
             field = d[key]
             line.set_ydata(field.mean(axis=0) if field.ndim == 2 else field)
@@ -1156,10 +1585,10 @@ def animate_forces(frames, keys, a, out_path, sum_only=False):
 
 def cmd_forces(a):
     data_dir = a.data_dir or default_data_dir()
-    out_dir = a.output_dir or "figs_standalone_forces"
+    out_dir = a.output_dir or "figs_athvis_forces"
     os.makedirs(out_dir, exist_ok=True)
     info = discover(data_dir, output_id=a.output_id)
-    keys = sorted(info["frames"])
+    keys = window_frames(sorted(info["frames"]), a)
     print(f"{len(keys)} uov frame(s), {keys[0]}..{keys[-1]}")
 
     if a.mode in ("frame", "all"):
@@ -1189,15 +1618,30 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def common(sp, output_id=1):
-        sp.add_argument("--data_dir", default=None)
-        sp.add_argument("--output_dir", default=None)
-        sp.add_argument("--output_id", type=int, default=output_id)
-        sp.add_argument("--dpi", type=int, default=150)
+        sp.add_argument("--data_dir", default=None,
+                        help="directory holding the frames (default: ./data, ../data, .)")
+        sp.add_argument("--output_dir", default=None,
+                        help="where the figures go (default: figs_athvis_<cmd>)")
+        sp.add_argument("--output_id", type=int, default=output_id,
+                        help="which <outputN> block to read")
+        sp.add_argument("--dpi", type=int, default=150, help="raster resolution")
+        sp.add_argument("--title", default=None,
+                        help="caption template over {time} {cycle} {frame}")
         sp.add_argument("--palette", default=None,
                         help="pypalettes name for line colours")
 
-    sp2d = sub.add_parser("2d", help="vis2d.py's full feature set")
+    def frame_opts(sp):
+        """Flags that only mean something where there is a sequence of frames."""
+        sp.add_argument("--start_frame", type=int, default=None,
+                        help="first frame number to use")
+        sp.add_argument("--end_frame", type=int, default=None,
+                        help="last frame number to use")
+        sp.add_argument("--num_workers", type=int, default=max(1, cpu_count() // 2),
+                        help="processes used to sample colour ranges")
+
+    sp2d = sub.add_parser("2d", help="2D maps, polar views and animations")
     common(sp2d)
+    frame_opts(sp2d)
     sp2d.add_argument("--mode", default="all",
                       choices=["all", "heatmaps", "radial", "polar", "azimuthal",
                               "animation", "polar_animation", "vector_animation"])
@@ -1208,25 +1652,56 @@ def build_parser():
     sp2d.add_argument("--r_max", type=float, default=None)
     sp2d.add_argument("--phi_min", type=float, default=None)
     sp2d.add_argument("--phi_max", type=float, default=None)
-    sp2d.add_argument("--normalize", default="none", choices=["none", "azimuthal"])
-    sp2d.add_argument("--add-vectors", dest="add_vectors", action="store_true")
-    sp2d.add_argument("--vec_field", default="velocity", choices=["velocity", "momentum"])
-    sp2d.add_argument("--vec_comp", default="both", choices=["both", "radial", "azimuthal"])
+    sp2d.add_argument("--normalize", default="none", choices=["none", "azimuthal"],
+                      help="plot each field as its deviation from the azimuthal mean")
+    sp2d.add_argument("--vmin_percentile", type=float, default=2.0,
+                      help="lower colour-scale percentile for animations")
+    sp2d.add_argument("--vmax_percentile", type=float, default=98.0,
+                      help="upper colour-scale percentile for animations")
+    sp2d.add_argument("--cmap_palette", default=None,
+                      help="replace the 2D colormaps with a pypalettes continuous map")
+    sp2d.add_argument("--add-vectors", dest="add_vectors", action="store_true",
+                      help="overlay the velocity (or momentum) field")
+    sp2d.add_argument("--vec_field", default="velocity", choices=["velocity", "momentum"],
+                      help="which vector field to draw")
+    sp2d.add_argument("--vec_comp", default="both", choices=["both", "radial", "azimuthal"],
+                      help="keep both components, or zero one of them")
     sp2d.add_argument("--vec_frame", default="perturbation",
-                      choices=["perturbation", "full"])
-    sp2d.add_argument("--vec_panels", default="last", choices=["last", "all"])
-    sp2d.add_argument("--vec_style", default="quiver", choices=["quiver", "stream"])
-    sp2d.add_argument("--vec_scale", default="log", choices=["linear", "sqrt", "log"])
-    sp2d.add_argument("--vec_arrows", type=int, default=8)
-    sp2d.add_argument("--vec_clip", type=float, default=92.0)
-    sp2d.add_argument("--vec_color", default="black")
+                      choices=["perturbation", "full"],
+                      help="subtract the azimuthal mean, or draw the raw field")
+    sp2d.add_argument("--vec_panels", default="last", choices=["last", "all"],
+                      help="overlay on the last panel only, or on every panel")
+    sp2d.add_argument("--vec_style", default="quiver", choices=["quiver", "stream"],
+                      help="arrows, or integrated streamlines")
+    sp2d.add_argument("--vec_lattice", default="polar",
+                      choices=["polar", "square", "hex"],
+                      help="where the arrows sit: rings of constant r, a Cartesian "
+                           "lattice, or a triangular one")
+    sp2d.add_argument("--vec_scale", default="log", choices=["linear", "sqrt", "log"],
+                      help="how arrow length maps to magnitude")
+    sp2d.add_argument("--vec_arrows", type=int, default=8,
+                      help="arrows across the radial extent")
+    sp2d.add_argument("--vec_stride", type=int, default=None,
+                      help="r-phi panels: take every Nth cell instead of --vec_arrows")
+    sp2d.add_argument("--vec_clip", type=float, default=92.0,
+                      help="percentile above which arrow length saturates")
+    sp2d.add_argument("--vec_color", default="black", help="arrow / streamline colour")
     sp2d.add_argument("--vec_density", type=float, default=0.6,
                       help="streamline density for --vec_style stream")
-    sp2d.add_argument("--info", default="default")
-    sp2d.add_argument("--params", default=None)
+    sp2d.add_argument("--info", default="default",
+                      help="model annotation: a preset (none/min/default/physics/full) "
+                           "or a comma-separated list of keys")
+    sp2d.add_argument("--info_pos", default="box",
+                      choices=["box", "subtitle", "footer"],
+                      help="where the annotation goes")
+    sp2d.add_argument("--info_on", default="polar", choices=["polar", "all"],
+                      help="annotate the polar animation only, or every animation")
+    sp2d.add_argument("--params", default=None,
+                      help="path to the athinput to read the model from")
 
-    sp1d = sub.add_parser("1d", help="vis1d.py")
+    sp1d = sub.add_parser("1d", help="azimuthally averaged radial profiles")
     common(sp1d)
+    frame_opts(sp1d)
     sp1d.add_argument("--mode", default="all", choices=["all", "profiles", "animation"])
     sp1d.add_argument("--frame", type=int, default=None)
     sp1d.add_argument("--fps", type=int, default=10)
@@ -1235,23 +1710,42 @@ def build_parser():
     sp1d.add_argument("--r_max", type=float, default=None)
     sp1d.add_argument("--phi_min", type=float, default=None)
     sp1d.add_argument("--phi_max", type=float, default=None)
+    sp1d.add_argument("--normalize", default="none", choices=["none", "azimuthal"],
+                      help="profile the deviation from the azimuthal mean")
+    sp1d.add_argument("--linear", action="store_true",
+                      help="linear y-axis for density and pressure (default: log)")
+    sp1d.add_argument("--vmin_percentile", type=float, default=2.0)
+    sp1d.add_argument("--vmax_percentile", type=float, default=98.0)
 
-    sphst = sub.add_parser("hst", help="vishst.py")
+    sphst = sub.add_parser("hst", help="history (.hst) time series")
     common(sphst)
-    sphst.add_argument("--mode", default="default", choices=["default", "all", "custom"])
-    sphst.add_argument("--vars", nargs="+", default=None)
+    sphst.add_argument("--mode", default="default", choices=["default", "all", "custom"],
+                       help="the two headline columns, every column, or --vars")
+    sphst.add_argument("--vars", nargs="+", default=None,
+                       help="columns to plot, for --mode custom")
+    sphst.add_argument("--linear_scale", nargs="+", default=[], metavar="VAR",
+                       help="columns to draw on a linear y-axis instead of log")
     sphst.add_argument("--linear", action="store_true",
-                       help="linear y-scale (default: log)")
+                       help="linear y-axis for every column")
+    sphst.add_argument("--figsize", nargs=2, type=float, default=(9.0, 5.0),
+                       metavar=("W", "H"), help="per-figure size in inches")
+    sphst.add_argument("--grid", action="store_true",
+                       help="heavier grid (a light one is always drawn)")
 
-    spf = sub.add_parser("forces", help="visforces.py")
+    spf = sub.add_parser("forces", help="radial force balance from the uov output")
     common(spf, output_id=2)
+    frame_opts(spf)
     spf.add_argument("--mode", default="all",
                      choices=["frame", "animation", "sum", "sum_animation", "all"])
     spf.add_argument("--frame", type=int, default=None)
     spf.add_argument("--fps", type=int, default=10)
     spf.add_argument("--subsample", type=int, default=1)
-    spf.add_argument("--log", action="store_true")
-    spf.add_argument("--linthresh", type=float, default=None)
+    spf.add_argument("--r_min", type=float, default=None)
+    spf.add_argument("--r_max", type=float, default=None)
+    spf.add_argument("--log", action="store_true",
+                     help="symlog y-axis, for the eight decades between disk and ambient")
+    spf.add_argument("--linthresh", type=float, default=None,
+                     help="linear region of the symlog axis (default 1e2)")
 
     return p
 
