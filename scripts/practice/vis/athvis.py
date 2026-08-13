@@ -34,9 +34,12 @@ FLAGS EVERY COMMAND TAKES
 --output_dir DIR    where figures are written (default: figs_athvis_<command>)
 --output_id N       which <outputN> block to read (2d/1d: 1, forces: 2)
 --dpi N             raster resolution                             (default 150)
---title TEMPLATE    replaces the built-in caption. {time}, {cycle} and {frame}
-                    are substituted; an unknown field falls back to the default
-                    instead of failing part-way through an animation
+--title TEMPLATE    replaces the built-in caption. {time}, {cycle}, {frame} and
+                    {base} are substituted. All four are always defined, so a
+                    template still works on a figure where one is meaningless -
+                    an animation's suptitle has no single time and leaves it
+                    blank. A placeholder outside the four falls back to the
+                    default rather than failing part-way through an animation
 --palette NAME      pypalettes palette for line colours. It is measured before
                     use - contrast against white, pairwise separation, and
                     separation under all three dichromacies - and rejected with
@@ -849,18 +852,32 @@ VARS_2D = {
 }
 
 
+TITLE_FIELDS = ("time", "cycle", "frame", "base")
+
+
 def format_title(default, a, **fields):
-    """--title overrides the built-in caption. {time}, {cycle} and {frame} are
-    substituted; an unknown placeholder falls back to the default rather than
-    raising part-way through a long animation."""
+    """--title overrides the built-in caption. {time} {cycle} {frame} {base} are
+    substituted.
+
+    All four are always defined, so a template stays usable on the figures where
+    one of them is meaningless - an animation's suptitle has no single time, and
+    substitutes an empty string rather than dropping back to the default title.
+    A placeholder outside the four does fall back, with a note: a bad template
+    must not kill an animation half way through.
+    """
     template = getattr(a, "title", None)
     if not template:
         return default
+    known = {k: "" for k in TITLE_FIELDS}
+    known["base"] = getattr(a, "_base", "") or ""
+    if getattr(a, "_frame", None) is not None:
+        known["frame"] = a._frame
+    known.update(fields)
     try:
-        return template.format(**fields)
+        return template.format(**known)
     except (KeyError, IndexError, ValueError) as exc:
         print(f"  note: --title {template!r} could not be formatted ({exc}); "
-              f"using the default")
+              f"available fields: {', '.join(TITLE_FIELDS)}. Using the default.")
         return default
 
 
@@ -1282,6 +1299,7 @@ def cmd_2d(a):
     out_dir = a.output_dir or "figs_athvis_2d"
     os.makedirs(out_dir, exist_ok=True)
     info = discover(data_dir, output_id=a.output_id)
+    a._base = info.get("base", "")
     keys = sorted(info["frames"])
     print(f"{len(keys)} frame(s), {keys[0]}..{keys[-1]}, base '{info['base']}'")
 
@@ -1311,6 +1329,7 @@ def cmd_2d(a):
         print(f"Saved: {out}")
     if a.mode in ("all", "heatmaps", "radial", "polar", "azimuthal"):
         frame = a.frame if a.frame is not None else keys[-1]
+        a._frame = frame
         if frame not in info["frames"]:
             raise SystemExit(f"frame {frame} not found; available {keys[0]}..{keys[-1]}")
         data = read_frame(info["frames"][frame])
@@ -1370,11 +1389,13 @@ def cmd_1d(a):
     out_dir = a.output_dir or "figs_athvis_1d"
     os.makedirs(out_dir, exist_ok=True)
     info = discover(data_dir, output_id=a.output_id)
+    a._base = info.get("base", "")
     keys = window_frames(sorted(info["frames"]), a)
     print(f"{len(keys)} frame(s), {keys[0]}..{keys[-1]}")
 
     if a.mode in ("all", "profiles"):
         frame = a.frame if a.frame is not None else keys[-1]
+        a._frame = frame
         data = read_frame(info["frames"][frame])
         out = os.path.join(out_dir, f"radial_profile_{frame:05d}.png")
         plot_radial(data, a, out)
@@ -1396,6 +1417,7 @@ def cmd_hst(a):
     out_dir = a.output_dir or "figs_athvis_hst"
     os.makedirs(out_dir, exist_ok=True)
     path, series = read_hst(data_dir)
+    a._base = os.path.basename(path).rsplit(".hst", 1)[0]
     time = series["time"]
     print(f"Reading: {path}")
     print(f"Available: {', '.join(series)}")
@@ -1588,16 +1610,19 @@ def cmd_forces(a):
     out_dir = a.output_dir or "figs_athvis_forces"
     os.makedirs(out_dir, exist_ok=True)
     info = discover(data_dir, output_id=a.output_id)
+    a._base = info.get("base", "")
     keys = window_frames(sorted(info["frames"]), a)
     print(f"{len(keys)} uov frame(s), {keys[0]}..{keys[-1]}")
 
     if a.mode in ("frame", "all"):
         frame = a.frame if a.frame is not None else keys[-1]
+        a._frame = frame
         data = read_uov_frame(info["frames"][frame])
         out = os.path.join(out_dir, f"forces_frame_{frame:05d}.png")
         plot_forces_frame(data, a, out); print(f"Saved: {out}")
     if a.mode in ("sum", "all"):
         frame = a.frame if a.frame is not None else keys[-1]
+        a._frame = frame
         data = read_uov_frame(info["frames"][frame])
         out = os.path.join(out_dir, f"force_sum_frame_{frame:05d}.png")
         plot_forces_sum(data, a, out); print(f"Saved: {out}")
