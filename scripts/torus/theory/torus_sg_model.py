@@ -440,7 +440,7 @@ mporder    = 4            # multipole order for the boundary values (2 or 4)
 problem   = Self-gravitating Papaloizou-Pringle torus; global m = 1 slow mode
 reference = Bannikova et al. 2026, A&A (arXiv:2604.11528), N-body counterpart
 configure = --prob=sg_torus_m1 --coord=cartesian{' --grav=mg' if m.self_gravity else ''}
-generated = scripts/theory/torus_sg_model.py
+generated = scripts/torus/theory/torus_sg_model.py
 
 <job>
 problem_id = sg_torus_m1  # basename of output filenames

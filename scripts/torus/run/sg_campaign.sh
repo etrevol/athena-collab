@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The self-gravitating torus campaign: four runs, one after another.
 #
-#   ./sg_campaign.sh [run ...]      # default: all four, in order
+#   CAMPAIGN=sg_torus_m1 ./sg_campaign.sh [run ...]     # default: canonical nosg
 #
 # Sequential on purpose. Multigrid is ~90% of the runtime and the machine is memory
 # bound, so two concurrent runs finish later than two consecutive ones.
@@ -16,7 +16,7 @@
 #   viscous    alpha > 0, which has no collisionless counterpart at all
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # CAMPAIGN selects the results subdirectory: ppi for the phase-1 constant-l
 # runs, sg_torus_m1 for the near-Keplerian reproduction of the paper.
 results="${repo}/results/${CAMPAIGN:-sg_torus_m1}"
@@ -34,7 +34,7 @@ for run in "${runs[@]}"; do
   [ "${run}" = "nosg" ] && bin="${repo}/bin/athena_nosg"
 
   if [ ! -f "${dir}/athinput" ]; then
-    echo "no input for '${run}'; generate it with scripts/theory/torus_sg_model.py" >&2
+    echo "no input for '${run}'; generate it with scripts/torus/theory/torus_sg_model.py" >&2
     exit 1
   fi
   if [ -f "${dir}/done" ]; then
