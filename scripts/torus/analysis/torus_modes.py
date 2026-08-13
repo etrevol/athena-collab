@@ -258,12 +258,19 @@ def pattern_speed_figure(d, ax=None):
 
 
 def trajectory(d, ax=None):
-    """The barycentre and the central mass, in anti-phase. Their Fig. 3."""
+    """The barycentre and the central mass, in anti-phase. Their Fig. 3.
+
+    Only one of these two curves is a measurement. The grid pins the point mass at the
+    origin, so r_c is not simulated: it follows from r_c = -(M_tor/M_c) r_tb, which is
+    exact for an isolated two-component system but is arithmetic, not evidence. Both are
+    drawn because the paper draws both, and the second is labelled as derived so that
+    the figure cannot be read as two independent confirmations of one fact.
+    """
     ax = ax or plt.gca()
     ax.plot(d["mass"] * d["r_tb"][:, 0], d["mass"] * d["r_tb"][:, 1],
             color=_COLORS[1], lw=0.7, label="$M_{\\rm tor}\\,r_{\\rm tb}$")
     ax.plot(d["r_c"][:, 0], d["r_c"][:, 1], color=_COLORS[2], lw=0.7,
-            label="$M_c\\,r_c$")
+            label="$M_c\\,r_c$ (derived, $=-M_{\\rm tor} r_{\\rm tb}$)")
     ax.set_aspect("equal")
     ax.set_xlabel("$x$")
     ax.set_ylabel("$y$")
