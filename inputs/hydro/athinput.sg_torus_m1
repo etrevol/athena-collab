@@ -1,0 +1,103 @@
+<comment>
+problem   = Self-gravitating Papaloizou-Pringle torus; global m = 1 slow mode
+reference = Bannikova et al. 2026, A&A (arXiv:2604.11528), N-body counterpart
+configure = --prob=sg_torus_m1 --coord=cartesian --grav=mg
+generated = scripts/theory/torus_sg_model.py
+
+<job>
+problem_id = sg_torus_m1  # basename of output filenames
+
+<output1>
+file_type  = hdf5         # output format
+variable   = prim        # variables to be output
+dt         = 3.1415927  # time increment between outputs
+
+<output2>
+file_type  = hst         # output format
+dt         = 0.031415927  # time increment between outputs
+data_format = %24.16e    # output format specifier
+
+<time>
+cfl_number = 0.3         # Courant, Friedrichs & Lewy number
+nlim       = -1          # cycle limit (-1 = unlimited)
+tlim       = 628.31853   # time limit (100 orbits at R_tor)
+integrator = vl2         # time integration algorithm
+xorder     = 2           # order of spatial reconstruction
+ncycle_out = 100         # interval for stdout summary info
+
+<mesh>
+num_threads = 15         # OpenMP threads; Athena++ parallelises over MeshBlocks
+
+nx1    = 128           # number of zones in X1-direction
+x1min  = -5.546         # minimum value of X1
+x1max  = 5.546          # maximum value of X1
+ix1_bc = outflow       # inner-X1 boundary condition flag
+ox1_bc = outflow       # outer-X1 boundary condition flag
+
+nx2    = 128           # number of zones in X2-direction
+x2min  = -5.546         # minimum value of X2
+x2max  = 5.546          # maximum value of X2
+ix2_bc = outflow       # inner-X2 boundary condition flag
+ox2_bc = outflow       # outer-X2 boundary condition flag
+
+nx3    = 128           # number of zones in X3-direction
+x3min  = -5.546         # minimum value of X3
+x3max  = 5.546          # maximum value of X3
+ix3_bc = outflow       # inner-X3 boundary condition flag
+ox3_bc = outflow       # outer-X3 boundary condition flag
+
+<meshblock>
+nx1 = 32            # MeshBlock size in X1-direction
+nx2 = 32            # MeshBlock size in X2-direction
+nx3 = 32            # MeshBlock size in X3-direction
+
+<gravity>
+mgmode     = FMG          # Multigrid mode (FMG or MGI)
+threshold  = 0.0          # convergence threshold (0 = automatic control)
+ix1_bc     = multipole    # isolated boundaries: the torus is not periodic
+ox1_bc     = multipole
+ix2_bc     = multipole
+ox2_bc     = multipole
+ix3_bc     = multipole
+ox3_bc     = multipole
+mporder    = 4            # multipole order for the boundary values (2 or 4)
+
+<hydro>
+gamma  = 1.6666667      # ratio of specific heats
+dfloor = 3.813058e-12   # density floor
+pfloor = 7.626116e-16   # pressure floor
+
+<problem>
+C_prime    = 0.2         # torus thickness parameter (0 < C_prime < 0.5)
+M_tor      = 0.1         # torus mass, in units of the central mass
+rho_c      = 3.8130577852e-03  # density at the torus centre (sets M_tor)
+GM_c       = 1.0         # central point mass (G = 1)
+eps_soft   = 0.25        # softening length of the central point mass
+self_grav  = 1           # 1 = torus self-gravity on
+indirect   = 1           # 1 = include the gas pull on the central mass (frame accel.)
+
+nu_iso     = 0           # isotropic kinematic viscosity; > 0 enables viscous fluxes
+alpha      = 0.0         # Shakura-Sunyaev viscosity parameter
+
+rho_atm      = 3.813058e-09  # ambient medium density
+t_atm_frac   = 1.0       # ambient p/rho, in units of the torus mid-plane value
+visc_rho_cut = 3.813058e-08  # density below which viscosity is tapered to zero
+
+# ==============================================================================
+# DERIVED QUANTITIES
+# ==============================================================================
+# Torus inner radius r_in    : 0.563508
+# Torus outer radius r_out   : 4.436492
+# Half-thickness z_max       : 2.564101
+# Orbital period T_orb       : 6.283185
+#
+# Cell size dx               : 0.086656
+#   across the minor radius  : 44.7 cells
+#   across the thickness     : 59.2 cells
+#   per softening length     : 2.9 cells
+# MeshBlocks                 : 64
+#
+# Jeans length / dx at rho_c : 148.1  (Truelove: keep above 4)
+# Timestep estimate          : 1.062e-02
+#   cycles for 100 orbits      : 5.915e+04
+# ==============================================================================

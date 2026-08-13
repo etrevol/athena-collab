@@ -1,0 +1,121 @@
+<comment>
+problem   = Self-gravitating Papaloizou-Pringle torus; global m = 1 slow mode
+reference = Bannikova et al. 2026, A&A (arXiv:2604.11528), N-body counterpart
+configure = --prob=sg_torus_m1 --coord=cartesian --grav=mg
+generated = scripts/theory/torus_sg_model.py
+
+<job>
+problem_id = sg_torus_m1  # basename of output filenames
+
+<output1>
+file_type  = hdf5         # output format
+variable   = prim        # variables to be output
+dt         = 3.1415927  # time increment between outputs
+
+<output2>
+file_type  = rst         # output format
+dt         = 62.831853  # time increment between outputs
+#
+# Restart files, because the N-body counterpart runs for 1000 orbits and this one
+# starts at 100. Without them, extending a run means recomputing it from t = 0.
+
+<output3>
+file_type  = hst         # output format
+dt         = 0.31415927  # time increment between outputs
+data_format = %24.16e    # output format specifier
+
+<time>
+cfl_number = 0.3         # Courant, Friedrichs & Lewy number
+nlim       = -1          # cycle limit (-1 = unlimited)
+tlim       = 628.31853   # time limit (100 orbits at R_tor)
+integrator = vl2         # time integration algorithm
+xorder     = 2           # order of spatial reconstruction
+ncycle_out = 100         # interval for stdout summary info
+
+<mesh>
+num_threads = 15         # OpenMP threads; Athena++ parallelises over MeshBlocks
+
+nx1    = 96           # number of zones in X1-direction
+x1min  = -5.604         # minimum value of X1
+x1max  = 5.604          # maximum value of X1
+ix1_bc = user          # inner-X1 boundary condition flag (diode outflow)
+ox1_bc = user          # outer-X1 boundary condition flag (diode outflow)
+
+nx2    = 96           # number of zones in X2-direction
+x2min  = -5.604         # minimum value of X2
+x2max  = 5.604          # maximum value of X2
+ix2_bc = user          # inner-X2 boundary condition flag (diode outflow)
+ox2_bc = user          # outer-X2 boundary condition flag (diode outflow)
+
+nx3    = 96           # number of zones in X3-direction
+x3min  = -5.604         # minimum value of X3
+x3max  = 5.604          # maximum value of X3
+ix3_bc = user          # inner-X3 boundary condition flag (diode outflow)
+ox3_bc = user          # outer-X3 boundary condition flag (diode outflow)
+
+<meshblock>
+nx1 = 32            # MeshBlock size in X1-direction
+nx2 = 32            # MeshBlock size in X2-direction
+nx3 = 32            # MeshBlock size in X3-direction
+
+<gravity>
+mgmode     = FMG          # Multigrid mode (FMG or MGI)
+niteration = 1            # Multigrid iterations after the FMG cycle
+#
+# Measured on this problem, 128^3, against FMG with automatic convergence control:
+#   FMG  niteration=1   6.1x faster   E_grav_self differs by 7e-6   <- used
+#   MGI  niteration=4   4.1x faster   differs by 7e-4
+#   MGI  niteration=2   5.2x faster   differs by 2.8e-2             <- rejected
+# The full multigrid cycle already converges to truncation error, so the extra
+# iterations of the automatic mode buy nothing. Multigrid is ~90% of the runtime
+# here, so this single line sets the cost of the whole campaign.
+ix1_bc     = multipole    # isolated boundaries: the torus is not periodic
+ox1_bc     = multipole
+ix2_bc     = multipole
+ox2_bc     = multipole
+ix3_bc     = multipole
+ox3_bc     = multipole
+mporder    = 4            # multipole order for the boundary values (2 or 4)
+
+<hydro>
+gamma  = 1.6666667      # ratio of specific heats
+dfloor = 3.643265e-08   # density floor
+pfloor = 7.616971e-12   # pressure floor
+
+<problem>
+C_prime    = 0.2         # torus thickness parameter
+q_rot      = 0.0         # rotation-law exponent, l = l_0 (R/R_tor)^q; 0 = const l
+M_tor      = 0.1         # torus mass, in units of the central mass
+rho_c      = 3.6432653528e-03  # density at the torus centre (sets M_tor)
+GM_c       = 1.0         # central point mass (G = 1)
+eps_soft   = 0.25        # softening length of the central point mass
+self_grav  = 1           # 1 = torus self-gravity on
+indirect   = 1           # 1 = include the gas pull on the central mass (frame accel.)
+pert_amp      = 0.003    # per-cell white-noise density seed
+pert_mode_amp = 0    # coherent seed per harmonic m = 1..5; 0 = off
+
+nu_iso     = 0           # isotropic kinematic viscosity; > 0 enables viscous fluxes
+alpha      = 0.0         # Shakura-Sunyaev viscosity parameter
+
+rho_atm      = 3.643265e-07  # ambient medium density
+t_atm_frac   = 1.0       # ambient p/rho, in units of the torus mid-plane value
+visc_rho_cut = 3.643265e-06  # density below which viscosity is tapered to zero
+
+# ==============================================================================
+# DERIVED QUANTITIES
+# ==============================================================================
+# Torus inner radius r_in    : 0.569439
+# Torus outer radius r_out   : 4.482952
+# Half-thickness z_max       : 2.674672
+# Orbital period T_orb       : 6.283185
+#
+# Cell size dx               : 0.116750
+#   across the minor radius  : 33.5 cells
+#   across the thickness     : 45.8 cells
+#   per softening length     : 2.1 cells
+# MeshBlocks                 : 27
+#
+# Jeans length / dx at rho_c : 115.0  (Truelove: keep above 4)
+# Timestep estimate          : 1.425e-02
+#   cycles for 100 orbits      : 4.408e+04
+# ==============================================================================
