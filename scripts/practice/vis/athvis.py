@@ -3,167 +3,135 @@
 
 Everything the four-script setup (vis2d/vis1d/vishst/visforces + athena_data)
 does, in a single file that imports only numpy and matplotlib. Copy it into a
-run directory, or anywhere else, and it works; nothing else has to come with it.
-pypalettes is used for colours when installed and falls back to a built-in
-palette when it is not.
+run directory, or anywhere else, and it works. pypalettes is used for colours
+when installed.
 
     python3 athvis.py <command> [flags]
     python3 athvis.py <command> --help      # every flag of one command
 
-With no --data_dir it looks for ./data, then ../data, then . - so it runs
-unchanged both inside a run directory and one level above it.
-
-Reads .tab only. Every run in this project writes .tab (the athinput's
-`file_type = tab`), and the .athdf reader is upstream Athena++ code that this
-file deliberately does not duplicate. Single- and multi-meshblock runs both
-work: blocks are joined onto one grid.
+Reads .tab only, single- or multi-meshblock. With no --data_dir it looks for
+./data, then ../data, then . - so it runs both inside a run directory and one
+level above it.
 
 
 COMMANDS
 --------
-2d       heatmaps, radial and azimuthal profiles, the polar view, three
-         animations, and the velocity-vector overlay
+2d       heatmaps, radial and azimuthal profiles, polar view, three animations,
+         velocity-vector overlay
 1d       azimuthally averaged radial profiles, and their evolution animation
 hst      the .hst history file as time series
 forces   the radial force balance from the uov output (output id 2)
 
 
-FLAGS EVERY COMMAND TAKES
--------------------------
+COMMON FLAGS
+------------
 --data_dir DIR      where the frames are      (default: ./data, ../data, .)
---output_dir DIR    where figures are written (default: figs_athvis_<command>)
+--output_dir DIR    where figures go          (default: figs_athvis_<command>)
 --output_id N       which <outputN> block to read (2d/1d: 1, forces: 2)
---dpi N             raster resolution                             (default 150)
---title TEMPLATE    replaces the built-in caption. {time}, {cycle}, {frame} and
-                    {base} are substituted. All four are always defined, so a
-                    template still works on a figure where one is meaningless -
-                    an animation's suptitle has no single time and leaves it
-                    blank. A placeholder outside the four falls back to the
-                    default rather than failing part-way through an animation
---palette NAME      pypalettes palette for line colours. It is measured before
-                    use - contrast against white, pairwise separation, and
-                    separation under all three dichromacies - and rejected with
-                    a note if it fails, rather than silently producing a figure
-                    two of whose curves are the same colour to a deuteranope
+--dpi N             raster resolution           (default 200; hst uses 150)
+--title TEMPLATE    caption template over {time} {cycle} {frame} {base}
+--palette NAME      pypalettes palette for line colours; measured for contrast
+                    and colourblind separation, and reported if it is weak
 
-2d, 1d and forces additionally take:
+2d, 1d and forces also take:
 
 --start_frame N     first frame to use
 --end_frame N       last frame to use
---num_workers N     processes used to sample animation colour ranges
-                    (default: half the cores)
+--num_workers N     processes sampling animation colour ranges (default: half
+                    the cores)
 
 
 2d
 --
 --mode MODE         all (default) | heatmaps | radial | azimuthal | polar |
                     animation | polar_animation | vector_animation
---frame N           which frame the still figures use      (default: the last)
---fps N             animation frame rate                             (default 10)
---subsample N       use every Nth frame in animations                (default 1)
+--frame N           frame for the still figures            (default: the last)
+--fps N             animation frame rate                           (default 10)
+--subsample N       use every Nth frame in animations              (default 1)
 --r_min / --r_max        radial window
 --phi_min / --phi_max    azimuthal window, in radians
---normalize MODE    none (default) | azimuthal. `azimuthal` plots every field as
-                    its deviation from the azimuthal mean - rho/<rho> - 1 and
-                    p/<p> - 1, v - <v> for the velocities. Without it a growing
-                    Papaloizou-Pringle mode is invisible: it is a percent-level
-                    perturbation on a background spanning eight decades, so the
-                    polar view of a disk with a healthy m = 2 mode looks round.
-                    It also switches to a diverging colormap and linear scaling,
-                    the result being signed.
---vmin_percentile P      lower colour-scale percentile for animations (default 2)
---vmax_percentile P      upper                                       (default 98)
---cmap_palette NAME pypalettes continuous map replacing the field colormaps.
-                    Off by default on purpose: inferno and plasma are
-                    perceptually uniform and RdBu_r is properly diverging, while
-                    most library palettes are neither, so an arbitrary swap
-                    misrepresents the field rather than merely restyling it.
+--normalize MODE    none (default) | azimuthal - plot each field as its
+                    deviation from the azimuthal mean, on a diverging map.
+                    Non-axisymmetric structure is invisible without it: a
+                    growing Papaloizou-Pringle mode is a percent-level
+                    perturbation on a background spanning eight decades
+--vmin_percentile P      lower colour-scale percentile, animations (default 2)
+--vmax_percentile P      upper                                     (default 98)
+--cmap_palette NAME pypalettes continuous map replacing the field colormaps
 
-Vector overlay (2d), all off unless --add-vectors is given:
+Vector overlay, all inert unless --add-vectors is given:
 
---add-vectors       draw the vector field on top of the maps
---vec_field F       velocity (default) | momentum (rho * v)
---vec_comp C        both (default) | radial | azimuthal - zeroes the other one
---vec_frame F       perturbation (default) | full. The orbital motion is two
-                    orders of magnitude larger than everything else, so `full`
-                    on a rotating disk shows the rotation and nothing else;
-                    `perturbation` subtracts the azimuthal mean first
---vec_panels P      last (default) | all - which panels get the overlay
+--add-vectors       draw the vector field over the maps
+--vec_field F       velocity (default) | momentum
+--vec_comp C        both (default) | radial | azimuthal
+--vec_frame F       perturbation (default) | full. Orbital motion is ~100x
+                    everything else, so `full` shows only the rotation
+--vec_panels P      last (default) | all
 --vec_style S       quiver (default) | stream
---vec_lattice L     polar (default) | square | hex - where arrows sit on the
-                    polar view: rings of constant r, a Cartesian lattice, or a
-                    triangular one. All three are centred on the origin by
-                    construction
---vec_arrows N      arrows across the radial extent               (default 8)
---vec_stride N      r-phi panels only: take every Nth cell instead of deriving
-                    the step from --vec_arrows
---vec_scale S       log (default) | sqrt | linear - how length maps to magnitude
---vec_clip P        percentile at which arrow length saturates    (default 92).
-                    A few cells at the disk surface carry velocities orders of
-                    magnitude above the interior; unclipped they set the scale
-                    and every other arrow collapses to a dot
+--vec_lattice L     polar (default) | square | hex - arrow placement on the
+                    polar view
+--vec_arrows N      arrows across the radial extent                (default 8)
+--vec_stride N      r-phi panels: every Nth cell, instead of --vec_arrows
+--vec_scale S       log (default) | sqrt | linear
+--vec_clip P        percentile at which arrow length saturates     (default 92)
 --vec_color C       arrow / streamline colour                  (default black)
---vec_density D     streamline density, --vec_style stream       (default 0.6)
+--vec_density D     streamline density, --vec_style stream        (default 0.6)
 
-Model annotation (2d):
+Model annotation:
 
 --info SPEC         none | min | default (default) | physics | full, or a
-                    comma-separated list of keys: alpha, nu_iso, gamma,
-                    C_prime, r_center, rho_atm, M_bh, T_0, mu, chi, grid, hr,
-                    N_orbits. `hr` and `N_orbits` are derived here from gamma
-                    and C_prime - H/r = sqrt((gamma-1)(0.5-C\')) and
-                    N = 1/(2 pi alpha (H/r)^2) - both of which are independent
-                    of black hole mass and temperature
+                    comma-separated list of: alpha, nu_iso, gamma, C_prime,
+                    r_center, rho_atm, M_bh, T_0, mu, chi, grid, hr, N_orbits.
+                    hr and N_orbits are derived from gamma and C_prime alone
 --info_pos POS      box (default, top-left) | subtitle | footer
 --info_on WHICH     polar (default) | all - which animations get annotated
---params PATH       athinput to read the model from. Found automatically by
-                    walking up from the data directory when omitted
+--params PATH       athinput to read the model from (found automatically)
 
 
 1d
 --
 --mode MODE         all (default) | profiles | animation
---frame N           which frame the still figure uses       (default: the last)
+--frame N           frame for the still figure             (default: the last)
 --fps N / --subsample N                     as for 2d
 --r_min / --r_max / --phi_min / --phi_max   as for 2d
 --normalize MODE    none (default) | azimuthal, as for 2d
---linear            linear y-axis for density and pressure (default: log; a log
-                    axis is skipped automatically where the profile is not
-                    strictly positive)
+--logscale          log y-axis for density and pressure   (default: linear)
 
 
 hst
 ---
---mode MODE         default (disk_mass and mdot_in on shared axes) | all (every
-                    column) | custom (--vars)
+--mode MODE         default (disk_mass and mdot_in on shared axes) | all |
+                    custom (--vars)
 --vars A B ...      columns to plot, for --mode custom
 --linear_scale VAR ...   columns to draw linearly instead of on a log axis
 --linear            linear y-axis for every column
---figsize W H       per-figure size in inches                 (default 9 5)
---grid              heavier grid; a light one is always drawn
 
-The columns this project's problem generator adds, and which are worth asking
-for by name: disk_mass and disk_L (the disk body alone - disk_L is the
-conserved angular momentum, unlike Athena++'s built-in 2-mom, which has no
-lever arm), mdot_in and mdot_out, n_dfloor / n_pfloor / rho_min / p_min (floor
-activations per cycle and the margin that survived), max_vr, dt_hyd and
-dt_visc.
+Columns go on a log axis by default, but only where one is usable: a column
+that touches zero (mdot_in) or sits at the ~1e308 "viscosity off" sentinel
+(dt_visc) stays linear, with a note saying which and why.
+--figsize W H       per-figure size in inches                   (default 10 6)
+--grid              draw a grid (off by default)
+--style NAME        matplotlib style        (default seaborn-v0_8-darkgrid)
+
+Beyond Athena++'s built-in columns, this project's generator adds disk_mass
+(the disk body, ambient subtracted) and mdot_in (flux through the inner
+boundary). Do not read the built-in 2-mom as angular momentum: it is
+int rho v_phi dV, with no lever arm.
 
 
 forces
 ------
 --mode MODE         all (default) | frame | sum | animation | sum_animation
---frame N           which frame the still figures use       (default: the last)
+--frame N           frame for the still figures            (default: the last)
 --fps N / --subsample N / --r_min / --r_max      as for 2d
 --log               symlog y-axis, for the eight decades between disk and
                     ambient
---linthresh X       linear region of the symlog axis           (default 1e2)
+--linthresh X       linear region of the symlog axis          (default 1e2)
 
-The uov fields are f_grav, f_centr, f_press and f_sum, computed by the problem
-generator with the solver's own discrete operators - face fluxes and the
-geometric factor - so f_sum is the discrete residual, not the error of a
-centred difference. At t = 0 the flux arrays are still empty, so the first
-frame's residual is meaningless; start at frame 1 if it looks wrong.
+The uov fields are f_grav, f_centr, f_press and f_sum, formed analytically by
+the generator (-beta/r^2, v_phi^2/r, a difference of p on x1v). f_sum therefore
+measures how well the analytic equilibrium holds, not the residual of the
+scheme the solver steps with.
 
 
 EXAMPLES
@@ -174,7 +142,7 @@ EXAMPLES
     python3 athvis.py 2d --mode vector_animation --vec_comp radial --fps 15
     python3 athvis.py 2d --mode polar_animation --info physics --subsample 2
     python3 athvis.py 1d --mode animation --start_frame 50
-    python3 athvis.py hst --mode custom --vars disk_mass disk_L max_vr
+    python3 athvis.py hst --mode custom --vars disk_mass mdot_in
     python3 athvis.py forces --mode sum_animation --log
 """
 
@@ -433,6 +401,39 @@ INFO_PRESETS = {
     "full": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "rho_atm",
             "hr", "N_orbits", "M_bh", "T_0", "mu", "chi"],
 }
+
+
+# CGS, for the one place a physical constant is unavoidable: the orbital period.
+_K_B, _M_P, _C_LIGHT = 1.380649e-16, 1.67262192e-24, 2.99792458e10
+
+
+def _derived_p_orb(params):
+    """Orbital period at the density maximum, in code units, or None.
+
+    beta = c^2 / (2 chi cs0^2) with cs0^2 = gamma k_B T_0 / (mu m_p), and
+    P = 2 pi sqrt(r_c^3 / beta). Written out rather than imported from
+    disk_model.py, which this file does not depend on.
+    """
+    try:
+        gamma = float(params["hydro/gamma"])
+        T_0 = float(params["problem/T_0"])
+        mu = float(params["problem/mu"])
+        chi = float(params["problem/chi"])
+        r_c = float(params.get("problem/r_center", 1.0))
+        cs0_sq = gamma * _K_B * T_0 / (mu * _M_P)
+        beta = _C_LIGHT ** 2 / (2.0 * chi * cs0_sq)
+        return 2.0 * math.pi * math.sqrt(r_c ** 3 / beta)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def frame_label(idx, total, time, p_orb=None):
+    """Frame counter; adds orbits when P_orb could be derived. Code time on its
+    own says nothing about how far the run has got."""
+    text = f"Frame {idx:3d}/{total} | Time = {time:5.2f}"
+    if p_orb:
+        text += f"  ({time / p_orb:.1f} orbits)"
+    return text
 
 
 def _derived_hr(gamma, c_prime):
@@ -770,7 +771,7 @@ def _quiver_uv(data, a, polar):
     return (Rs, Phis, U, V, stride(len(r))), None
 
 
-def update_vectors(ax, data, a, polar, artists=None, scale_data=None):
+def update_vectors(ax, data, a, polar, artists=None, scale_data=None, add_key=True):
     """Draw or update the --add-vectors overlay. Handles both the single-shot
     static case (artists=None every call) and animation (artists passed back in
     from the previous frame), because both failure modes bit once already:
@@ -823,22 +824,35 @@ def update_vectors(ax, data, a, polar, artists=None, scale_data=None):
     else:
         dx = (float(r[-1]) - float(r[0])) / max(len(r), 1) * stride
         q = ax.quiver(X, Y, U, V, scale_units="x", scale=cap / (0.85 * max(dx, 1e-30)), **kw)
+        if add_key and np.isfinite(cap) and cap > 0:
+            # 0.72/0.94: above the axes it ran through the panel title, at x=0.97
+            # the shaft ran off the panel
+            ax.quiverkey(q, 0.72, 0.94, cap, f"{cap:.3g}", labelpos="W",
+                         coordinates="axes", labelsep=0.05, zorder=7,
+                         fontproperties={"size": 8})
     return cap, {"q": q}
 
 
-def overlay_vectors(ax, data, a, polar=True):
+def overlay_vectors(ax, data, a, polar=True, add_key=True):
     """One-shot overlay for the static (single-frame) plots."""
-    cap, _ = update_vectors(ax, data, a, polar=polar)
+    cap, _ = update_vectors(ax, data, a, polar=polar, add_key=add_key)
     return cap
 
 
-def vector_caption(a, cap):
+def vector_label(a):
     sym = r"\rho\vec{v}" if a.vec_field == "momentum" else r"\vec{v}"
     base = f"${sym}$" if a.vec_frame == "full" else f"${sym}-\\langle{sym}\\rangle_\\phi$"
-    comp = "" if a.vec_comp == "both" else f" ({a.vec_comp} only)"
-    tail = f",  longest arrow = {cap:.3g}" if cap else ""
-    scale_note = f" ({a.vec_scale} length scale)" if a.vec_scale != "linear" and cap else ""
-    return f"arrows: {base}{comp}  ({a.vec_style}){tail}{scale_note}"
+    return base if a.vec_comp == "both" else base + f" ({a.vec_comp} only)"
+
+
+def vector_caption(a, cap):
+    """Caption line. It carries the arrow scale for the polar views, which have no
+    room for a quiverkey - all four corners of a polar axes hold an angle label."""
+    tail = (f",  longest arrow = {cap:.3g}"
+            if cap and a.vec_style != "stream" else "")
+    if a.vec_scale != "linear" and tail:
+        tail += f" ({a.vec_scale} length scale)"
+    return f"arrows: {vector_label(a)}  ({a.vec_style}){tail}"
 
 
 # =============================================================================
@@ -850,6 +864,13 @@ VARS_2D = {
     "vel_r":    dict(cmap="RdBu_r",  log=False, label=r"$v_r$ (Radial Velocity)"),
     "vel_phi":  dict(cmap="coolwarm", log=False, label=r"$v_\phi$ (Azimuthal Velocity)"),
 }
+
+# The heatmap panel adds v_z; the polar, radial and azimuthal figures do not, which
+# is how the four-script setup lays them out. In a 2D (r, phi) run v_z is identically
+# zero, so it is a check that the run is planar rather than a field to read.
+VARS_HEATMAP = dict(VARS_2D,
+                    vel_z=dict(cmap="PuOr", log=False,
+                               label=r"$v_z$ (Vertical Velocity)"))
 
 
 TITLE_FIELDS = ("time", "cycle", "frame", "base")
@@ -937,11 +958,12 @@ def apply_normalize(data, mode):
     return out
 
 
-def var_info_for(mode):
+def var_info_for(mode, base=None):
+    base = base if base is not None else VARS_2D
     if mode != "azimuthal":
-        return VARS_2D
+        return base
     out = {}
-    for k, v in VARS_2D.items():
+    for k, v in base.items():
         rel = k in ("density", "pressure")
         out[k] = dict(v, log=False, cmap="RdBu_r",
                       label=v["label"].split(" (")[0]
@@ -952,14 +974,13 @@ def var_info_for(mode):
 
 def plot_heatmap(data, a, out_path):
     data = apply_normalize(apply_bounds(data, a), a.normalize)
-    info_map = var_info_for(a.normalize)
+    info_map = var_info_for(a.normalize, VARS_HEATMAP)
     # the vector field gets a panel of its own, over density: on the v_r and v_phi
     # panels arrows would only restate what the colour already says
     n_panels = len(info_map) + (1 if a.add_vectors else 0)
     ncols = 3 if n_panels > 4 else 2
     nrows = -(-n_panels // ncols)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5.4 * ncols, 6.0 * nrows),
-                             squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(16, 12), squeeze=False)
     fig.suptitle(format_title(f"2D Disk Structure (t={data['time']:.3f}, "
                               f"cycle={data['cycle']})", a,
                               time=data['time'], cycle=data['cycle']),
@@ -969,17 +990,19 @@ def plot_heatmap(data, a, out_path):
         field = data[name]
         im = ax.pcolormesh(data["R"], data["Phi"], field, cmap=info["cmap"],
                            norm=_norm(field, info), shading="auto")
-        ax.set_xlabel("r"); ax.set_ylabel(r"$\phi$ (rad)"); ax.set_title(info["label"])
-        plt.colorbar(im, ax=ax); ax.grid(alpha=0.3)
+        ax.set_xlabel("r", fontsize=12); ax.set_ylabel(r"$\phi$ (rad)", fontsize=12)
+        ax.set_title(info["label"], fontsize=13, fontweight="bold")
+        plt.colorbar(im, ax=ax, label=info["label"]); ax.grid(True, alpha=0.3)
     if a.add_vectors:
         axv = flat[len(info_map)]
         rho = data["density"]
         axv.pcolormesh(data["R"], data["Phi"], rho, cmap=VEC_BG_CMAP, shading="auto",
                        norm=(LogNorm(rho[rho > 0].min(), rho.max()) if np.all(rho > 0)
                              else Normalize(rho.min(), rho.max())))
-        cap = overlay_vectors(axv, data, a, polar=False)
-        axv.set_xlabel("r"); axv.set_ylabel(r"$\phi$"); axv.grid(alpha=0.3)
-        axv.set_title(vector_caption(a, cap), fontsize=10)
+        overlay_vectors(axv, data, a, polar=False)
+        axv.set_xlabel("r", fontsize=12); axv.set_ylabel(r"$\phi$ (rad)", fontsize=12)
+        axv.set_title(f"{vector_label(a)}  over $\\rho$", fontsize=13, fontweight="bold")
+        axv.grid(True, alpha=0.3)
     for ax in flat[n_panels:]:          # a 2x3 grid holding 5 panels has a spare
         ax.remove()
     fig.tight_layout()
@@ -1002,8 +1025,9 @@ def plot_polar(data, a, out_path):
         field = data[name]
         im = ax.pcolormesh(data["Phi"], data["R"], field, cmap=info["cmap"],
                            norm=_norm(field, info), shading="auto")
-        ax.set_title(info["label"], pad=20); plt.colorbar(im, ax=ax, pad=0.1)
-        ax.grid(alpha=0.3)
+        ax.set_title(info["label"], fontsize=13, fontweight="bold", pad=20)
+        plt.colorbar(im, ax=ax, label=info["label"], pad=0.1)
+        ax.grid(True, alpha=0.3)
         if a.add_vectors and (a.vec_panels == "all" or idx == len(keys) - 1):
             last_cap = overlay_vectors(ax, data, a, polar=True)
     if a.add_vectors:
@@ -1018,7 +1042,7 @@ def plot_radial(data, a, out_path):
     info_map = var_info_for(getattr(a, "normalize", "none"))
     colors = line_colors(4, a.palette)
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-    fig.suptitle(format_title(f"Radial Profiles (averaged over phi) - "
+    fig.suptitle(format_title(f"Radial Profiles (averaged over \u03c6) - "
                               f"t={data['time']:.3f}", a,
                               time=data['time'], cycle=data['cycle']),
                 fontsize=14, fontweight="bold")
@@ -1028,8 +1052,40 @@ def plot_radial(data, a, out_path):
         mean, std = data[name].mean(axis=0), data[name].std(axis=0)
         ax.plot(data["r"], mean, color=color, linewidth=2, label=labels[name])
         ax.fill_between(data["r"], mean - std, mean + std, alpha=0.25, color=color)
-        ax.set_xlabel("r"); ax.set_ylabel(labels[name]); ax.legend(); ax.grid(alpha=0.3)
+        ax.set_xlabel("r", fontsize=11); ax.set_ylabel(labels[name], fontsize=11)
+        ax.legend(fontsize=10); ax.grid(True, alpha=0.3)
         if info["log"] and not getattr(a, "linear", False) and (mean > 0).all():
+            ax.set_yscale("log")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=a.dpi, bbox_inches="tight")
+    plt.close(fig)
+
+
+VARS_1D = {
+    "density":  dict(marker="o", label=r"Density $\rho$"),
+    "pressure": dict(marker="s", label=r"Pressure $P$"),
+    "vel_r":    dict(marker="^", label=r"Radial Velocity $v_r$"),
+    "vel_phi":  dict(marker="d", label=r"Azimuthal Velocity $v_\phi$"),
+}
+
+
+def plot_profiles_1d(data, a, out_path):
+    data = apply_bounds(data, a)
+    colors = line_colors(4, a.palette)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle(format_title(f"Radial Profiles (t={data['time']:.3f}, "
+                              f"cycle={data['cycle']})", a,
+                              time=data['time'], cycle=data['cycle']),
+                 fontsize=16, fontweight="bold")
+    for ax, (name, info), color in zip(axes.flat, VARS_1D.items(), colors):
+        field = np.asarray(data[name])
+        prof = field.mean(axis=0) if field.ndim == 2 else field
+        ax.plot(data["r"], prof, color=color, linewidth=2, marker=info["marker"],
+                markersize=4, linestyle="-", label=info["label"])
+        ax.set_xlabel("Radius r", fontsize=12)
+        ax.set_ylabel(info["label"], fontsize=12)
+        ax.legend(fontsize=10); ax.grid(True, alpha=0.3)
+        if getattr(a, "logscale", False) and name in ("density", "pressure"):
             ax.set_yscale("log")
     fig.tight_layout()
     fig.savefig(out_path, dpi=a.dpi, bbox_inches="tight")
@@ -1049,10 +1105,10 @@ def plot_azimuthal(data, a, out_path):
     labels = {"density": r"$\rho$", "pressure": "$P$", "vel_r": "$v_r$", "vel_phi": r"$v_\phi$"}
     for ax, (name, info) in zip(axes.flat, VARS_2D.items()):
         for ridx, color in zip(idxs, colors):
-            ax.plot(phi, data[name][:, ridx], color=color, linewidth=2, alpha=0.8,
+            ax.plot(phi, data[name][:, ridx], color=color, linewidth=2, alpha=0.7,
                    label=f"r={r[ridx]:.2f}")
-        ax.set_xlabel(r"$\phi$ (rad)"); ax.set_ylabel(labels[name])
-        ax.legend(fontsize=9); ax.grid(alpha=0.3)
+        ax.set_xlabel(r"$\phi$ (rad)", fontsize=11); ax.set_ylabel(labels[name], fontsize=11)
+        ax.legend(fontsize=9); ax.grid(True, alpha=0.3)
         if info["log"]:
             ax.set_yscale("log")
     fig.tight_layout()
@@ -1158,21 +1214,22 @@ def animate_heatmap(frames, keys, a, out_path, info_lines):
         im = ax.pcolormesh(first["R"], first["Phi"], field, cmap=info["cmap"],
                            norm=norms.get(name) or _norm(field, info), shading="auto")
         ax.set_xlabel("r"); ax.set_ylabel(r"$\phi$"); ax.set_title(info["label"])
-        plt.colorbar(im, ax=ax); ax.grid(alpha=0.3)
+        plt.colorbar(im, ax=ax); ax.grid(True, alpha=0.3)
         ims.append(im)
     _draw_info_box(fig, info_lines, a, plot="cartesian")
     time_text = fig.text(0.5, 0.95, "", ha="center", fontsize=12, fontweight="bold")
 
     def update(k):
         d = apply_normalize(apply_bounds(read_frame(frames[keys[k]]), a), a.normalize)
-        time_text.set_text(f"Frame {k:3d}/{len(keys)-1} | Time = {d['time']:5.2f}")
+        time_text.set_text(frame_label(k, len(keys) - 1, d["time"],
+                                       getattr(a, "_p_orb", None)))
         for im, name in zip(ims, info_map):
             im.set_array(d[name].ravel())
         return ims + [time_text]
 
     ani = animation.FuncAnimation(fig, update, frames=len(keys),
                                   interval=1000 / a.fps, blit=False)
-    ani.save(out_path, fps=a.fps, dpi=130)
+    ani.save(out_path, fps=a.fps, dpi=150)
     plt.close(fig)
 
 
@@ -1185,15 +1242,16 @@ def animate_polar(frames, keys, a, out_path, info_lines):
     norms = global_ranges(frames, keys, a, list(info_map))
     fig = plt.figure(figsize=(14, 10))
     fig.suptitle(format_title("Polar View of Disk Evolution", a),
-                 fontsize=16, fontweight="bold")
+                 fontsize=16, fontweight="bold", y=0.98)
     axes, ims = [], []
     for i, (name, info) in enumerate(info_map.items()):
         ax = plt.subplot(2, 2, i + 1, projection="polar")
         field = first[name]
         im = ax.pcolormesh(first["Phi"], first["R"], field, cmap=info["cmap"],
                            norm=norms.get(name) or _norm(field, info), shading="auto")
-        ax.set_title(info["label"], pad=20); plt.colorbar(im, ax=ax, pad=0.1)
-        ax.grid(alpha=0.3)
+        ax.set_title(info["label"], fontsize=13, fontweight="bold", pad=20)
+        plt.colorbar(im, ax=ax, label=info["label"], pad=0.1)
+        ax.grid(True, alpha=0.3)
         axes.append(ax); ims.append(im)
 
     vec_axes = [ax for idx, ax in enumerate(axes)
@@ -1210,53 +1268,62 @@ def animate_polar(frames, keys, a, out_path, info_lines):
 
     def update(k):
         d = apply_normalize(apply_bounds(read_frame(frames[keys[k]]), a), a.normalize)
-        time_text.set_text(f"Frame {k:3d}/{len(keys)-1} | Time = {d['time']:5.2f}")
+        time_text.set_text(frame_label(k, len(keys) - 1, d["time"],
+                                       getattr(a, "_p_orb", None)))
         for im, name in zip(ims, info_map):
             im.set_array(d[name].ravel())
         if a.add_vectors:
             for ax in vec_axes:
                 _, vec_state[id(ax)] = update_vectors(
-                    ax, d, a, polar=True, artists=vec_state[id(ax)], scale_data=last)
+                    ax, d, a, polar=True, artists=vec_state[id(ax)], scale_data=last,
+                    add_key=False)
         return ims + [time_text]
 
     ani = animation.FuncAnimation(fig, update, frames=len(keys),
                                   interval=1000 / a.fps, blit=False)
-    ani.save(out_path, fps=a.fps, dpi=130)
+    # leave room for the title and the frame counter, or the second row's panel
+    # titles land on the first row's 270-degree tick label
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    ani.save(out_path, fps=a.fps, dpi=150)
     plt.close(fig)
 
 
 def animate_vector(frames, keys, a, out_path, info_lines):
     keys = keys[::max(1, a.subsample)]
-    first = read_frame(frames[keys[0]])
-    last = read_frame(frames[keys[-1]])   # scale reference: frame 0 has v_r = 0
+    first = apply_bounds(read_frame(frames[keys[0]]), a)
+    # scale reference: frame 0 is the initial condition, with v_r = 0 everywhere
+    last = apply_bounds(read_frame(frames[keys[-1]]), a)
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection="polar")
     fig.suptitle(format_title("Velocity Field", a), fontsize=16, fontweight="bold")
     rho = first["density"]
-    norms = global_ranges(frames, keys, a, ["density"])
-    lo = rho[rho > 0].min() if np.any(rho > 0) else None
+    # the background is context for the arrows, so its scale comes from the frame
+    # it is drawn from rather than from a sample of the whole run
+    lo = np.percentile(rho[rho > 0], a.vmin_percentile) if np.any(rho > 0) else None
+    hi = np.percentile(rho, a.vmax_percentile)
     bg = ax.pcolormesh(first["Phi"], first["R"], rho, cmap=VEC_BG_CMAP, shading="auto",
-                       norm=norms.get("density") or
-                            (LogNorm(lo, rho.max()) if lo
-                             else Normalize(rho.min(), rho.max())))
-    plt.colorbar(bg, ax=ax, pad=0.1, fraction=0.04).set_label(r"$\rho$")
+                       norm=(LogNorm(vmin=lo, vmax=hi) if lo and lo > 0
+                             else Normalize(vmin=rho.min(), vmax=hi)))
+    plt.colorbar(bg, ax=ax, pad=0.1, fraction=0.04).set_label(r"$\rho$", fontsize=11)
     cap, vec_art = update_vectors(ax, first, a, polar=True, scale_data=last)
-    ax.grid(alpha=0.3)
+    ax.grid(True, alpha=0.3)
     fig.text(0.5, 0.035, vector_caption(a, cap), ha="center", fontsize=12)
     _draw_info_box(fig, info_lines, a, plot="vector")
     time_text = fig.text(0.5, 0.93, "", ha="center", fontsize=12, fontweight="bold")
 
     def update(k):
         nonlocal vec_art
-        d = read_frame(frames[keys[k]])
-        time_text.set_text(f"Frame {k:3d}/{len(keys)-1} | Time = {d['time']:5.2f}")
+        d = apply_bounds(read_frame(frames[keys[k]]), a)
+        time_text.set_text(frame_label(k, len(keys) - 1, d["time"],
+                                       getattr(a, "_p_orb", None)))
         bg.set_array(d["density"].ravel())
-        _, vec_art = update_vectors(ax, d, a, polar=True, artists=vec_art, scale_data=last)
+        _, vec_art = update_vectors(ax, d, a, polar=True, artists=vec_art,
+                                    scale_data=last, add_key=False)
         return [bg, time_text]
 
     ani = animation.FuncAnimation(fig, update, frames=len(keys),
                                   interval=1000 / a.fps, blit=False)
-    ani.save(out_path, fps=a.fps, dpi=130)
+    ani.save(out_path, fps=a.fps, dpi=150)
     plt.close(fig)
 
 
@@ -1306,9 +1373,13 @@ def cmd_2d(a):
     keys = window_frames(keys, a)
     apply_cmap_palette(a)
 
+    # The athinput is read once, for the annotation and for P_orb - the latter is
+    # wanted on the animations even when --info is off, since code time alone says
+    # nothing about how far the run has got.
     info_lines = []
+    ath = find_athinput(data_dir, a.params)
+    a._p_orb = _derived_p_orb(read_athinput(ath)) if ath else None
     if a.info != "none":
-        ath = find_athinput(data_dir, a.params)
         if ath:
             info_lines = model_info_lines(read_athinput(ath), a.info)
             print(f"Model info: {a.info} from {os.path.basename(ath)}")
@@ -1351,36 +1422,64 @@ def cmd_2d(a):
 # 1D (mirrors vis1d.py) - the radial profile evolution *line* animation
 # =============================================================================
 def animate_1d_evolution(frames, keys, a, out_path):
-    """Radial profiles over time. --linear turns off the log y-axis."""
+    """Radial profiles over time, on axes fixed by the whole window.
+
+    Ranges come from every frame in the animation, not from the first: with
+    per-frame autoscaling a curve that barely moves looks like it is thrashing,
+    and one that does move goes off the top.
+    """
     keys = keys[::max(1, a.subsample)]
     colors = line_colors(4, a.palette)
-    labels = {"density": r"Density $\rho$", "pressure": r"Pressure $P$",
-             "vel_r": r"Radial Velocity $v_r$", "vel_phi": r"Azimuthal Velocity $v_\phi$"}
-    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
-    fig.suptitle(format_title("Radial Profile Evolution", a),
-                 fontsize=15, fontweight="bold")
-    first = read_frame(frames[keys[0]])
-    lines = {}
-    for ax, (name, color) in zip(axes.flat, zip(VARS_2D, colors)):
-        mean = first[name].mean(axis=0)
-        (line,) = ax.plot(first["r"], mean, color=color, linewidth=2)
-        ax.set_xlabel("r"); ax.set_ylabel(labels[name]); ax.grid(alpha=0.3)
-        if VARS_2D[name]["log"]:
-            ax.set_yscale("log")
-        lines[name] = line
-    time_text = fig.text(0.5, 0.965, "", ha="center", fontsize=11, fontweight="bold")
+    logscale = getattr(a, "logscale", False)
 
-    def update(k):
-        d = read_frame(frames[keys[k]])
-        time_text.set_text(f"t = {d['time']:.3f}  (frame {k}/{len(keys)-1})")
-        for name, line in lines.items():
-            line.set_ydata(d[name].mean(axis=0))
+    all_data = []
+    for k in keys:
+        d = apply_bounds(read_frame(frames[k]), a)
+        prof = {"time": d["time"], "cycle": d["cycle"], "r": d["r"]}
+        for name in VARS_1D:
+            arr = np.asarray(d[name])
+            prof[name] = arr.mean(axis=0) if arr.ndim == 2 else arr
+        all_data.append(prof)
+
+    ranges = {}
+    for name in VARS_1D:
+        vals = np.concatenate([d[name] for d in all_data])
+        if logscale and name in ("density", "pressure"):
+            pos = vals[vals > 0]
+            ranges[name] = (pos.min() * 0.5, pos.max() * 2.0) if pos.size else (0.1, 1.0)
+        else:
+            margin = 0.1 * (vals.max() - vals.min())
+            ranges[name] = (vals.min() - margin, vals.max() + margin)
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle(format_title("Radial Profile Evolution", a),
+                 fontsize=16, fontweight="bold", y=0.98)
+    r0 = all_data[0]["r"]
+    lines = {}
+    for ax, (name, info), color in zip(axes.flat, VARS_1D.items(), colors):
+        (lines[name],) = ax.plot([], [], color=color, linewidth=2,
+                                 marker=info["marker"], markersize=4, linestyle="-",
+                                 label=info["label"])
+        ax.set_xlabel("Radius r", fontsize=12)
+        ax.set_ylabel(info["label"], fontsize=12)
+        ax.set_title(info["label"], fontsize=13, fontweight="bold", pad=20)
+        ax.legend(fontsize=10); ax.grid(True, alpha=0.3)
+        ax.set_xlim(r0.min(), r0.max()); ax.set_ylim(ranges[name])
+        if logscale and name in ("density", "pressure"):
+            ax.set_yscale("log")
+    time_text = fig.text(0.5, 0.94, "", ha="center", fontsize=12, fontweight="bold")
+
+    def update(idx):
+        d = all_data[idx]
+        for name in VARS_1D:
+            lines[name].set_data(d["r"], d[name])
+        time_text.set_text(f"Frame {idx:3d}/{len(keys) - 1} | Time = {d['time']:5.2f}")
         return list(lines.values()) + [time_text]
 
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
     ani = animation.FuncAnimation(fig, update, frames=len(keys),
                                   interval=1000 / a.fps, blit=False)
-    ani.save(out_path, fps=a.fps, dpi=130)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    ani.save(out_path, fps=a.fps, dpi=150)
     plt.close(fig)
 
 
@@ -1398,7 +1497,7 @@ def cmd_1d(a):
         a._frame = frame
         data = read_frame(info["frames"][frame])
         out = os.path.join(out_dir, f"radial_profile_{frame:05d}.png")
-        plot_radial(data, a, out)
+        plot_profiles_1d(data, a, out)
         print(f"Saved: {out}")
     if a.mode in ("all", "animation"):
         out = os.path.join(out_dir, "radial_profile_evolution.mp4")
@@ -1411,8 +1510,162 @@ def cmd_1d(a):
 # =============================================================================
 DEFAULT_HST_VARS = ["disk_mass", "mdot_in"]
 
+# Fixed colours for the columns that have a meaning here; anything else falls back
+# to the palette. Keeping disk_mass dark red across every figure is the point.
+HST_INFO = {
+    "time": ("Time", "black"), "dt": ("Timestep", "gray"),
+    "mass": ("Total Mass", "blue"), "1-mom": ("Radial Momentum", "red"),
+    "2-mom": ("Azimuthal Momentum", "green"), "3-mom": ("Vertical Momentum", "purple"),
+    "1-KE": ("Radial Kinetic Energy", "orange"),
+    "2-KE": ("Azimuthal Kinetic Energy", "cyan"),
+    "3-KE": ("Vertical Kinetic Energy", "magenta"),
+    "tot-E": ("Total Energy", "darkblue"),
+    "disk_mass": (r"Disk Mass [$M_\odot$]", "darkred"),
+    "mdot_in": (r"Accretion Rate [$M_\odot$/yr]", "darkgreen"),
+}
+
+
+
+def log_axis_ok(values):
+    """(usable, reason) for putting `values` on a log y-axis.
+
+    Two failures, both of which this project's .hst produces:
+      - a column that touches zero or goes negative (mdot_in does). matplotlib
+        masks those points and the curve silently stops.
+      - dt_visc, which is ~7e307 when viscosity is off. That is finite and
+        positive, so it passes the obvious check, but padding it by a decade
+        overflows and the tick locator raises OverflowError - `--mode all` used
+        to abort on any inviscid run.
+    """
+    v = np.asarray(values, dtype=float)
+    if not np.all(np.isfinite(v)):
+        return False, "has non-finite samples"
+    n_bad = int((v <= 0).sum())
+    if n_bad:
+        return False, f"{n_bad} of {v.size} samples are <= 0"
+    if v.max() > 1e300:
+        return False, "values are at the 'disabled' sentinel (~1e308)"
+    return True, ""
+
+def hst_style(name):
+    """(label, colour) for a history column."""
+    if name in HST_INFO:
+        return HST_INFO[name]
+    return name, line_colors(1, quiet=True)[0]
+
+
+def _stats_box(ax, text, corner="top"):
+    ax.text(0.02, 0.98 if corner == "top" else 0.02, text, transform=ax.transAxes,
+            fontsize=9, verticalalignment="top" if corner == "top" else "bottom",
+            bbox={"boxstyle": "round", "facecolor": "wheat",
+                  "alpha": 0.5 if corner == "top" else 0.7})
+
+
+def plot_hst_variable(time, values, name, a, out_dir, linear=False):
+    label, color = hst_style(name)
+    figsize = tuple(getattr(a, "figsize", (10.0, 6.0)))
+    fig, ax = plt.subplots(figsize=figsize, dpi=a.dpi)
+    ax.plot(time, values, linewidth=2.0, alpha=0.8, color=color, label=label)
+    ax.set_xlabel("Time", fontsize=12, fontweight="bold")
+    ax.set_ylabel(label, fontsize=12, fontweight="bold")
+    ax.set_title(format_title(f"{label} Evolution", a), fontsize=14,
+                 fontweight="bold", pad=15)
+    if not linear:
+        ok, why = log_axis_ok(values)
+        if ok:
+            ax.set_yscale("log")
+        else:
+            print(f"  note: {name} stays on a linear axis - it {why}")
+    if getattr(a, "grid", False):
+        ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+    v = np.asarray(values, dtype=float)
+    _stats_box(ax, f"Mean: {v.mean():.4e}\nStd: {v.std():.4e}\n"
+                   f"Min: {v.min():.4e}\nMax: {v.max():.4e}")
+    fig.tight_layout()
+    out = os.path.join(out_dir, f"{name.replace('-', '_').replace(' ', '_')}_vs_time.png")
+    fig.savefig(out, dpi=a.dpi, bbox_inches="tight"); plt.close(fig)
+    return out
+
+
+def plot_hst_overview(time, series, names, a, out_dir, linear_vars=()):
+    n = len(names)
+    w, h = tuple(getattr(a, "figsize", (10.0, 6.0)))
+    if n <= 2:
+        nrows, ncols, figsize = (1, max(n, 1), (w, h))
+    elif n <= 4:
+        nrows, ncols, figsize = (2, 2, (w * 1.2, h * 1.5))
+    elif n <= 6:
+        nrows, ncols, figsize = (2, 3, (w * 1.5, h * 1.5))
+    elif n <= 9:
+        nrows, ncols, figsize = (3, 3, (w * 1.5, h * 2))
+    else:
+        nrows, ncols = -(-n // 3), 3
+        figsize = (w * 1.5, h * (nrows * 0.8))
+    fig, axes = plt.subplots(nrows, ncols, figsize=figsize, dpi=a.dpi, squeeze=False)
+    flat = list(axes.flat)
+    for ax, name in zip(flat, names):
+        label, color = hst_style(name)
+        values = np.asarray(series[name], dtype=float)
+        ax.plot(time, values, linewidth=1.6, alpha=0.8, color=color)
+        ax.set_xlabel("Time", fontsize=10); ax.set_ylabel(label, fontsize=10)
+        ax.set_title(label, fontsize=11, fontweight="bold")
+        if name not in linear_vars and log_axis_ok(values)[0]:
+            ax.set_yscale("log")
+        if getattr(a, "grid", False):
+            ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+    for ax in flat[n:]:
+        ax.axis("off")
+    fig.tight_layout()
+    out = os.path.join(out_dir, "all_variables_overview.png")
+    fig.savefig(out, dpi=a.dpi, bbox_inches="tight"); plt.close(fig)
+    return out
+
+
+def plot_disk_mass_and_mdot(time, disk_mass, mdot_in, a, out_dir):
+    """The two headline columns on shared axes - they differ by many decades, so
+    a single y-axis would flatten one of them."""
+    c1, c2 = line_colors(2, quiet=True)
+    fig, ax1 = plt.subplots(figsize=tuple(getattr(a, "figsize", (10.0, 6.0))), dpi=a.dpi)
+    ax1.set_xlabel("Time", fontsize=12, fontweight="bold")
+    ax1.set_ylabel(r"Disk Mass [$M_\odot$]", fontsize=12, fontweight="bold", color=c1)
+    l1 = ax1.plot(time, disk_mass, linewidth=2.0, alpha=0.8, color=c1, label="Disk Mass")
+    ax1.tick_params(axis="y", labelcolor=c1)
+    if getattr(a, "grid", False):
+        ax1.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+    ax2 = ax1.twinx()
+    ax2.set_ylabel(r"Accretion Rate [$M_\odot$/yr]", fontsize=12, fontweight="bold",
+                   color=c2)
+    l2 = ax2.plot(time, mdot_in, linewidth=2.0, alpha=0.8, color=c2,
+                  label=r"$\dot{M}_{in}$")
+    ax2.tick_params(axis="y", labelcolor=c2)
+    ax1.set_title(format_title("Disk Mass and Accretion Rate Evolution", a),
+                  fontsize=14, fontweight="bold", pad=15)
+    lines = l1 + l2
+    ax1.legend(lines, [str(l.get_label()) for l in lines], loc="best", framealpha=0.9)
+    _stats_box(ax1,
+               f"Mean Disk Mass: {np.mean(disk_mass):.4e} M$_\\odot$\n"
+               f"Mean $\\dot{{M}}_{{in}}$: {np.mean(mdot_in):.4e} M$_\\odot$/yr",
+               corner="bottom")
+    fig.tight_layout()
+    out = os.path.join(out_dir, "disk_mass_and_mdot.png")
+    fig.savefig(out, dpi=a.dpi, bbox_inches="tight"); plt.close(fig)
+    return out
+
+
+def apply_style(name):
+    """Matplotlib style for the hst figures. vishst.py sets one and the other
+    three scripts do not, so it is applied per command, not globally."""
+    if not name or name == "none":
+        return
+    try:
+        plt.style.use(name)
+    except Exception:
+        print(f"  note: style '{name}' is not available; using the default")
+        plt.style.use("default")
+
 
 def cmd_hst(a):
+    apply_style(getattr(a, "style", None))
     data_dir = a.data_dir or default_data_dir()
     out_dir = a.output_dir or "figs_athvis_hst"
     os.makedirs(out_dir, exist_ok=True)
@@ -1423,7 +1676,7 @@ def cmd_hst(a):
     print(f"Available: {', '.join(series)}")
 
     if a.mode == "default":
-        var_names = DEFAULT_HST_VARS
+        var_names = [v for v in DEFAULT_HST_VARS if v in series]
     elif a.mode == "all":
         var_names = [v for v in series if v not in ("time", "dt")]
     else:
@@ -1435,52 +1688,37 @@ def cmd_hst(a):
                              f"{', '.join(series)}")
         var_names = a.vars
 
-    colors = line_colors(len(var_names), a.palette)
-
     linear_vars = set(a.linear_scale) if getattr(a, "linear_scale", None) else set()
-    grid_alpha = 0.6 if getattr(a, "grid", False) else 0.3
-    figsize = tuple(getattr(a, "figsize", (9.0, 5.0)))
+    if getattr(a, "linear", False):
+        linear_vars |= set(var_names)
 
     if a.mode == "default" and "disk_mass" in series and "mdot_in" in series:
-        fig, ax1 = plt.subplots(figsize=(figsize[0] + 1.0, figsize[1] + 1.0))
-        c1, c2 = line_colors(2, a.palette)
-        ax1.plot(time, series["disk_mass"], color=c1, linewidth=2)
-        ax1.set_ylabel("Disk Mass", color=c1); ax1.tick_params(axis="y", labelcolor=c1)
-        ax2 = ax1.twinx()
-        ax2.plot(time, series["mdot_in"], color=c2, linewidth=2)
-        ax2.set_ylabel("Accretion Rate", color=c2); ax2.tick_params(axis="y", labelcolor=c2)
-        ax1.set_xlabel("time"); ax1.grid(alpha=grid_alpha)
-        ax1.set_title(format_title("Disk Mass and Accretion Rate", a))
-        out = os.path.join(out_dir, "disk_mass_and_mdot.png")
-        fig.tight_layout(); fig.savefig(out, dpi=a.dpi); plt.close(fig)
-        print(f"Saved: {out}")
-        var_names = [v for v in var_names if v not in ("disk_mass", "mdot_in")]
-        colors = line_colors(max(len(var_names), 1), a.palette)
+        print(f"Saved: {plot_disk_mass_and_mdot(time, series['disk_mass'], series['mdot_in'], a, out_dir)}")
+    if a.mode == "all":
+        print(f"Saved: {plot_hst_overview(time, series, var_names, a, out_dir, linear_vars)}")
 
-    for name, color in zip(var_names, colors):
-        fig, ax = plt.subplots(figsize=figsize)
-        values = np.asarray(series[name])
-        ax.plot(time, values, color=color, linewidth=1.8)
-        ax.set_xlabel("time"); ax.set_ylabel(name); ax.grid(alpha=grid_alpha)
-        ax.set_title(format_title(f"{name} vs time", a))
-        # a log axis silently drops a column that touches zero or goes negative -
-        # mdot_in and the floor counters both do - so fall back rather than plot
-        # a misleading gap
-        if not a.linear and name not in linear_vars and np.all(values > 0):
-            ax.set_yscale("log")
-        out = os.path.join(out_dir, f"{name}_vs_time.png")
-        fig.tight_layout(); fig.savefig(out, dpi=a.dpi); plt.close(fig)
-        print(f"Saved: {out}")
+    for name in var_names:
+        print(f"Saved: {plot_hst_variable(time, series[name], name, a, out_dir, name in linear_vars)}")
+
+    if a.mode == "custom" and len(var_names) > 1:
+        print(f"Saved: {plot_hst_overview(time, series, var_names, a, out_dir, linear_vars)}")
 
 
 # =============================================================================
 # FORCES (mirrors visforces.py) - uov output (default output_id=2)
 # =============================================================================
 FORCE_KEYS = ["f_grav", "f_centr", "f_press", "f_sum"]
-FORCE_LABELS = {"f_grav": r"$f_{\rm grav}=-\beta/r^2$",
-               "f_centr": r"$f_{\rm centr}=v_\phi^2/r$",
-               "f_press": r"$f_{\rm press}=-(1/\rho)\partial P/\partial r$",
-               "f_sum": r"$f_{\rm sum}$"}
+
+
+def force_colors(a):
+    """One colour per force, from the same 4-colour palette every script uses."""
+    return dict(zip(FORCE_KEYS, line_colors(4, getattr(a, "palette", None), quiet=True)))
+FORCE_LABELS = {
+    "f_grav":  r"$f_\mathrm{grav} = -\beta/r^2$",
+    "f_centr": r"$f_\mathrm{centr} = v_\phi^2/r$",
+    "f_press": r"$f_\mathrm{press} = -(1/\rho)\,\partial P/\partial r$",
+    "f_sum":   r"$f_\mathrm{sum} = f_\mathrm{grav}+f_\mathrm{centr}+f_\mathrm{press}$",
+}
 
 
 def read_uov_frame(paths):
@@ -1535,73 +1773,151 @@ def clip_forces(data, a):
     return out
 
 
-def plot_forces_frame(data, a, out_path):
+def phi_average(field):
+    """(mean, std) over phi, or (field, 0) for a run that is already 1D."""
+    arr = np.asarray(field)
+    if arr.ndim == 2:
+        return arr.mean(axis=0), arr.std(axis=0)
+    return arr, np.zeros_like(arr)
+
+
+def apply_symlog(ax, arrays, linthresh=None):
+    """symlog y-axis. The forces change sign, so a plain log axis drops half the
+    curve; linthresh sets the width of the linear region around zero and defaults
+    to the 5th percentile of |f|, i.e. just below the smallest values on show."""
+    if linthresh is None:
+        allabs = np.abs(np.concatenate([np.asarray(x).ravel() for x in arrays]))
+        nz = allabs[allabs > 0]
+        linthresh = float(np.percentile(nz, 5)) if nz.size else 1.0
+    ax.set_yscale("symlog", linthresh=linthresh)
+
+
+def plot_forces_frame(data, a, out_path, show_sum=False):
     data = clip_forces(data, a)
     r = data["r"]
-    colors = line_colors(4, a.palette)
+    keys = [k for k in FORCE_KEYS if k != "f_sum" and k in data]
+    if show_sum and "f_sum" in data:
+        keys.append("f_sum")
     fig, ax = plt.subplots(figsize=(10, 6))
-    for key, color in zip(FORCE_KEYS, colors):
-        if key not in data:
-            continue
-        field = data[key]
-        mean = field.mean(axis=0) if field.ndim == 2 else field
-        ax.plot(r, mean, color=color, linewidth=2, label=FORCE_LABELS[key])
+    fig.suptitle(format_title(f"Radial Force Balance (\u03c6-averaged) \u2014 "
+                              f"t = {data['time']:.4f}, cycle = {data['cycle']}", a,
+                              time=data['time'], cycle=data['cycle']),
+                 fontsize=13, fontweight="bold")
+    means = []
+    for key in keys:
+        avg, std = phi_average(data[key])
+        means.append(avg)
+        color = force_colors(a)[key]
+        ax.plot(r, avg, color=color, label=FORCE_LABELS[key],
+                linestyle="--" if key == "f_sum" else "-",
+                linewidth=1.5 if key == "f_sum" else 2.0)
+        ax.fill_between(r, avg - std, avg + std, alpha=0.15, color=color)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax.set_xlabel(r"$r$ (dimensionless)", fontsize=12)
+    ax.set_ylabel(r"Force per unit mass", fontsize=12)
+    ax.legend(fontsize=10, loc="best"); ax.grid(True, alpha=0.3)
     if a.log:
-        ax.set_yscale("symlog", linthresh=a.linthresh or 1e2)
-    ax.set_xlabel("r"); ax.set_ylabel("force / mass"); ax.legend(); ax.grid(alpha=0.3)
-    ax.set_title(format_title(f"Force balance, t={data['time']:.3f}", a,
-                              time=data['time'], cycle=data['cycle']))
-    fig.tight_layout(); fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        apply_symlog(ax, means, a.linthresh)
+    fig.tight_layout(); fig.savefig(out_path, dpi=a.dpi, bbox_inches="tight")
     plt.close(fig)
 
 
 def plot_forces_sum(data, a, out_path):
     data = clip_forces(data, a)
     r = data["r"]
-    color = line_colors(1, a.palette)[0]
-    field = data["f_sum"]
-    mean = field.mean(axis=0) if field.ndim == 2 else field
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(r, mean, color=color, linewidth=2)
+    avg, std = phi_average(data["f_sum"])
+    color = force_colors(a)["f_sum"]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    fig.suptitle(format_title(f"Net Radial Force (\u03c6-averaged) \u2014 "
+                              f"t = {data['time']:.4f}, cycle = {data['cycle']}", a,
+                              time=data['time'], cycle=data['cycle']),
+                 fontsize=13, fontweight="bold")
+    ax.plot(r, avg, linewidth=2.0, color=color, label=FORCE_LABELS["f_sum"])
+    ax.fill_between(r, avg - std, avg + std, alpha=0.2, color=color)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax.set_xlabel(r"$r$ (dimensionless)", fontsize=12)
+    ax.set_ylabel(r"$f_\mathrm{sum}$ (force per unit mass)", fontsize=12)
+    ax.legend(fontsize=10); ax.grid(True, alpha=0.3)
     if a.log:
-        ax.set_yscale("symlog", linthresh=a.linthresh or 1e2)
-    ax.set_xlabel("r"); ax.set_ylabel(FORCE_LABELS["f_sum"]); ax.grid(alpha=0.3)
-    ax.set_title(format_title(f"Net force, t={data['time']:.3f}", a,
-                              time=data['time'], cycle=data['cycle']))
-    fig.tight_layout(); fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        apply_symlog(ax, [avg], a.linthresh)
+    fig.tight_layout(); fig.savefig(out_path, dpi=a.dpi, bbox_inches="tight")
     plt.close(fig)
 
 
 def animate_forces(frames, keys, a, out_path, sum_only=False):
-    keys = keys[::max(1, a.subsample)]
-    first = clip_forces(read_uov_frame(frames[keys[0]]), a)
-    colors = line_colors(1 if sum_only else 4, a.palette)
-    fig, ax = plt.subplots(figsize=(10, 6))
-    lines = {}
-    force_keys = ["f_sum"] if sum_only else FORCE_KEYS
-    for key, color in zip(force_keys, colors):
-        field = first[key]
-        mean = field.mean(axis=0) if field.ndim == 2 else field
-        (line,) = ax.plot(first["r"], mean, color=color, linewidth=2,
-                          label=FORCE_LABELS[key])
-        lines[key] = line
-    if a.log:
-        ax.set_yscale("symlog", linthresh=a.linthresh or 1e2)
-    ax.set_xlabel("r"); ax.set_ylabel("force / mass"); ax.legend(); ax.grid(alpha=0.3)
-    title = fig.suptitle("", fontsize=12, fontweight="bold")
+    """Animated phi-averaged force profiles, with the +/-std band.
 
-    def update(k):
-        d = clip_forces(read_uov_frame(frames[keys[k]]), a)
-        title.set_text(format_title(f"t = {d['time']:.3f}", a,
-                                    time=d['time'], cycle=d['cycle']))
-        for key, line in lines.items():
-            field = d[key]
-            line.set_ydata(field.mean(axis=0) if field.ndim == 2 else field)
+    The y-limits are taken from a sample spread over the run, not from the first
+    frame: at t = 0 the flux arrays are still empty, so frame 0's residual is not
+    representative of anything that follows.
+    """
+    keys = keys[::max(1, a.subsample)]
+    force_keys = ["f_sum"] if sum_only else ["f_grav", "f_centr", "f_press"]
+    colors = force_colors(a)
+    first = clip_forces(read_uov_frame(frames[keys[0]]), a)
+    r = first["r"]
+
+    step = max(1, len(keys) // 10)
+    sampled = []
+    for k in keys[::step]:
+        try:
+            d = clip_forces(read_uov_frame(frames[k]), a)
+            sampled.extend(phi_average(d[key])[0] for key in force_keys)
+        except Exception:
+            pass
+    if not sampled:
+        ylim = (-0.1, 0.1) if sum_only else (-1.0, 1.0)
+    elif sum_only:
+        # the residual is centred on zero and should look it, so the limits are
+        # symmetric rather than taken from where the sampled values happen to fall
+        yabs = np.percentile(np.abs(np.concatenate(sampled)), 99)
+        ylim = (-yabs * 1.2, yabs * 1.2)
+    else:
+        allv = np.concatenate(sampled)
+        lo, hi = np.percentile(allv, 1), np.percentile(allv, 99)
+        margin = 0.1 * (hi - lo)
+        ylim = (lo - margin, hi + margin)
+
+    figsize = (8, 5) if sum_only else (10, 6)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set_xlabel(r"$r$ (dimensionless)", fontsize=12)
+    ax.set_ylabel(r"$f_\mathrm{sum}$ (force per unit mass)" if sum_only
+                  else r"Force per unit mass", fontsize=12)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax.set_ylim(float(ylim[0]), float(ylim[1]))
+    ax.grid(True, alpha=0.3)
+    if a.log:
+        apply_symlog(ax, [phi_average(first[k])[0] for k in force_keys], a.linthresh)
+
+    band = 0.2 if sum_only else 0.15
+    lines, fills = {}, {}
+    for key in force_keys:
+        avg, std = phi_average(first[key])
+        (lines[key],) = ax.plot(r, avg, linewidth=2.0, color=colors[key],
+                                label=FORCE_LABELS[key])
+        fills[key] = ax.fill_between(r, avg - std, avg + std, alpha=band,
+                                     color=colors[key])
+    ax.legend(fontsize=10, loc="best")
+    title = ax.set_title("", fontsize=12, fontweight="bold")
+    head = "Net Radial Force" if sum_only else "Radial Force Balance"
+
+    def update(idx):
+        d = clip_forces(read_uov_frame(frames[keys[idx]]), a)
+        title.set_text(format_title(
+            f"{head} (\u03c6-averaged) \u2014 t = {d['time']:.4f}  "
+            f"[{idx + 1}/{len(keys)}]", a,
+            time=d["time"], cycle=d["cycle"], frame=keys[idx]))
+        for key in force_keys:
+            avg, std = phi_average(d[key])
+            lines[key].set_ydata(avg)
+            fills[key].remove()
+            fills[key] = ax.fill_between(d["r"], avg - std, avg + std,
+                                         alpha=band, color=colors[key])
         return list(lines.values()) + [title]
 
     ani = animation.FuncAnimation(fig, update, frames=len(keys),
                                   interval=1000 / a.fps, blit=False)
-    ani.save(out_path, fps=a.fps, dpi=130)
+    ani.save(out_path, fps=a.fps, dpi=150)
     plt.close(fig)
 
 
@@ -1642,14 +1958,14 @@ def build_parser():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def common(sp, output_id=1):
+    def common(sp, output_id=1, dpi=200):
         sp.add_argument("--data_dir", default=None,
                         help="directory holding the frames (default: ./data, ../data, .)")
         sp.add_argument("--output_dir", default=None,
                         help="where the figures go (default: figs_athvis_<cmd>)")
         sp.add_argument("--output_id", type=int, default=output_id,
                         help="which <outputN> block to read")
-        sp.add_argument("--dpi", type=int, default=150, help="raster resolution")
+        sp.add_argument("--dpi", type=int, default=dpi, help="raster resolution")
         sp.add_argument("--title", default=None,
                         help="caption template over {time} {cycle} {frame}")
         sp.add_argument("--palette", default=None,
@@ -1737,13 +2053,13 @@ def build_parser():
     sp1d.add_argument("--phi_max", type=float, default=None)
     sp1d.add_argument("--normalize", default="none", choices=["none", "azimuthal"],
                       help="profile the deviation from the azimuthal mean")
-    sp1d.add_argument("--linear", action="store_true",
-                      help="linear y-axis for density and pressure (default: log)")
+    sp1d.add_argument("--logscale", action="store_true",
+                      help="log y-axis for density and pressure (default: linear)")
     sp1d.add_argument("--vmin_percentile", type=float, default=2.0)
     sp1d.add_argument("--vmax_percentile", type=float, default=98.0)
 
     sphst = sub.add_parser("hst", help="history (.hst) time series")
-    common(sphst)
+    common(sphst, dpi=150)
     sphst.add_argument("--mode", default="default", choices=["default", "all", "custom"],
                        help="the two headline columns, every column, or --vars")
     sphst.add_argument("--vars", nargs="+", default=None,
@@ -1752,10 +2068,12 @@ def build_parser():
                        help="columns to draw on a linear y-axis instead of log")
     sphst.add_argument("--linear", action="store_true",
                        help="linear y-axis for every column")
-    sphst.add_argument("--figsize", nargs=2, type=float, default=(9.0, 5.0),
+    sphst.add_argument("--figsize", nargs=2, type=float, default=(10.0, 6.0),
                        metavar=("W", "H"), help="per-figure size in inches")
     sphst.add_argument("--grid", action="store_true",
-                       help="heavier grid (a light one is always drawn)")
+                       help="draw a grid (off by default, as in vishst.py)")
+    sphst.add_argument("--style", default="seaborn-v0_8-darkgrid",
+                       help="matplotlib style for these figures ('none' to skip)")
 
     spf = sub.add_parser("forces", help="radial force balance from the uov output")
     common(spf, output_id=2)

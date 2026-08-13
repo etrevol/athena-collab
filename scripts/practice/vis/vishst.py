@@ -202,6 +202,28 @@ def read_hst_file(filename):
 # =============================================================================
 # PLOTTING FUNCTIONS
 # =============================================================================
+def log_axis_ok(values):
+    """(usable, reason) for putting `values` on a log y-axis.
+
+    Two failures, both of which this project's .hst produces:
+      - a column that touches zero or goes negative (mdot_in does). matplotlib
+        masks those points and the curve silently stops.
+      - dt_visc, which is ~7e307 when viscosity is off. That is finite and
+        positive, so it passes the obvious check, but padding it by a decade
+        overflows and the tick locator raises OverflowError - `--mode all` used
+        to abort on any inviscid run.
+    """
+    v = np.asarray(values, dtype=float)
+    if not np.all(np.isfinite(v)):
+        return False, "has non-finite samples"
+    n_bad = int((v <= 0).sum())
+    if n_bad:
+        return False, f"{n_bad} of {v.size} samples are <= 0"
+    if v.max() > 1e300:
+        return False, "values are at the 'disabled' sentinel (~1e308)"
+    return True, ""
+
+
 def plot_variable(time, var_data, var_name, output_dir, linear_scale=False):
     """Plot single variable vs time"""
     fig, ax = plt.subplots(figsize=CONFIG['figsize'], dpi=CONFIG['dpi'])
@@ -229,9 +251,13 @@ def plot_variable(time, var_data, var_name, output_dir, linear_scale=False):
                                   label=label, var=var_name, file=os.path.basename(hst_file)),
                  fontsize=14, fontweight='bold', pad=15)
     
-    # Use log scale by default, unless explicitly set to linear
+    # Log by default, but only where a log axis is actually usable
     if not linear_scale:
-        ax.set_yscale('log')
+        _ok, _why = log_axis_ok(var_data)
+        if _ok:
+            ax.set_yscale('log')
+        else:
+            print(f"  note: {var_name} stays on a linear axis - it {_why}")
     
     if CONFIG['grid']:
         ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
@@ -317,8 +343,8 @@ def plot_multiple_variables(time, data_dict, var_names, output_dir, linear_scale
         ax.set_ylabel(label, fontsize=10)
         ax.set_title(label, fontsize=11, fontweight='bold')
         
-        # Use log scale by default, unless explicitly set to linear
-        if var_name not in linear_scale_vars:
+        # Log by default, but only where a log axis is actually usable
+        if var_name not in linear_scale_vars and log_axis_ok(var_data)[0]:
             ax.set_yscale('log')
         
         if CONFIG['grid']:
