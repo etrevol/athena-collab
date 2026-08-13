@@ -74,8 +74,21 @@ import numpy as np
 # RUN CONFIGURATION - resolution and run length, then `python3 torus_sg_model.py`
 # ============================================================================
 # The PHYSICS lives in the TorusModel field defaults below and nowhere else.
+# Run length is a decision, not a default. Measured on the phase-2 pair, where the
+# question was whether self-gravity sustains the mode, the ratio of late amplitudes
+# converges only slowly:
+#
+#     averaged over orbits 30..T :  T=40  1.18   T=50  1.57   T=70  1.88   T=100  2.04
+#
+# so a 50-orbit run gets the sign and the direction of an effect but is 25% short on
+# its size, 70 orbits lands within 8%, and 100 is the reference. Both curves oscillate
+# with a period of roughly ten orbits, which is why a single late snapshot is worthless
+# and the comparison has to be a window average.
+#
+#   SCREENING (does the effect exist, which way does it go)   : orbits = 50
+#   PRODUCTION (any number that will be quoted or plotted)    : orbits = 100
 RUN_SETUP = dict(
-    orbits=100.0,        # run length, in orbits at R_tor
+    orbits=100.0,        # run length; use 50 for a screening run, see above
     frames_per_orbit=2.0,
     nx=96,               # cells per dimension of the cube
     meshblock=32,        # MeshBlock size; must divide nx, and Multigrid wants 2^k
