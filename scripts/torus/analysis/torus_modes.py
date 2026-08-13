@@ -195,6 +195,33 @@ def amplitude_ratios(d, ax=None):
     return ax
 
 
+def run_parameters(run_dir):
+    """q_rot and eps_soft from the run's own athinput, for the corotation radius."""
+    fn = os.path.join(run_dir, "athinput")
+    out = {"q_rot": 0.0, "eps_soft": 0.0}
+    if os.path.isfile(fn):
+        txt = open(fn).read()
+        for k in out:
+            m = re.search(rf"^{k}\s*=\s*([0-9.eE+-]+)", txt, re.M)
+            if m:
+                out[k] = float(m.group(1))
+    return out
+
+
+def corotation_radius(omega_p, q_rot=0.0, eps_soft=0.0):
+    """Where the gas rotates at the pattern speed.
+
+    The rotation law is l = l_0 R^q with l_0^2 = (1 + eps^2)^(-3/2), so
+    Omega(R) = l/R^2 = l_0 R^(q-2) -- NOT R^(-3/2) unless q = 0. Using the Keplerian
+    form regardless of q would misplace the corotation radius, which is the one number
+    that decides whether a mode is the Papaloizou-Pringle instability or a slow mode.
+    """
+    if omega_p <= 0.0:
+        return float("nan")
+    l0 = (1.0 + eps_soft**2) ** -0.75
+    return (l0 / omega_p) ** (1.0 / (2.0 - q_rot))
+
+
 def pattern_speed(d, smooth=51):
     """Omega_p = d Phi_1 / dt, in units of the orbital frequency at R_tor.
 
@@ -278,7 +305,7 @@ def saturation_table(d, last_fraction=0.25):
                 window=(float(d["orbits"][sl][0]), float(d["orbits"][-1])))
 
 
-def format_table(s):
+def format_table(s, pars=None):
     verdict = ("secular slow mode" if abs(s["omega_p"]) < 0.2 else
                "FAST: this looks like the Papaloizou-Pringle instability, "
                "not the secular mode")
@@ -288,6 +315,10 @@ def format_table(s):
          f"  k = A2/A1 = {s['k']:.3f}   (their runs: 0.20-0.25)",
          f"  Q3 = (A3/A1)/k^2 = {s['Q3']:.3f}   (geometric spectrum: 1)",
          f"  Omega_p = {s['omega_p']:.3f}   ({verdict})"]
+    if pars is not None:
+        rco = corotation_radius(s["omega_p"], **pars)
+        L.append(f"  corotation R = {rco:.2f}   "
+                 f"(Omega = l0 R^(q-2) with q = {pars['q_rot']}, not Keplerian)")
     return "\n".join(L)
 
 
@@ -364,7 +395,7 @@ def main():
         idx = int(os.path.basename(snaps[-1]).split(".")[-2])
         density_maps(args.run_dir, args.id, idx, os.path.join(out, "density.png"))
 
-    print(format_table(saturation_table(d, args.last)))
+    print(format_table(saturation_table(d, args.last), run_parameters(args.run_dir)))
     print(f"\n{len(panels) + bool(snaps)} figures in {out}")
     return 0
 
