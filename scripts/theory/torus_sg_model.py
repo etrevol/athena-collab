@@ -3,6 +3,14 @@ collisionless torus of Bannikova et al. (2026, A&A; arXiv:2604.11528).
 
     python3 torus_sg_model.py     # write inputs/hydro/athinput.sg_torus_m1 and check it
 
+The defaults are the near-Keplerian reproduction of the paper (phase 2). The constant-l
+torus that was used to characterise the Papaloizou-Pringle instability first (phase 1,
+tagged phase1-ppi) is the same model with three parameters changed, and is regenerated
+with
+
+    python3 torus_sg_model.py --q_rot 0 --eps_soft 0.25 \
+        --pert_amp 3e-3 --pert_mode_amp 0 -o inputs/hydro/athinput.ppi_torus
+
 The paper follows a collisionless torus of N massive particles orbiting a dominant
 central mass and finds that a global m = 1 slow mode grows spontaneously out of an
 axisymmetric state. This module sets up the same experiment for a *gas* torus, so the
@@ -85,7 +93,9 @@ class TorusModel:
 
     # geometry and thermodynamics
     gamma: float = 5.0 / 3.0   # adiabatic index; 5/3 for the collisionless analogue
-    C_prime: float = 0.2       # thickness parameter
+    # 0.18 with q = 0.30 puts the half-thickness at z_max = 1.083, which is the
+    # equivalent of i_max = 60 deg - their canonical run, where the mode is strong.
+    C_prime: float = 0.18      # thickness parameter
 
     # Rotation-law exponent, l = l_0 (R/R_tor)^q. q = 0 is the constant-angular-momentum
     # torus of the 2D model - and the most Papaloizou-Pringle unstable case there is,
@@ -96,11 +106,11 @@ class TorusModel:
     # be both thick and Keplerian, because for a fluid the thickness IS the departure
     # from Keplerian rotation. The collisionless torus escapes this because its thickness
     # comes from inclination dispersion, which is decoupled from the mean rotation law.
-    q_rot: float = 0.0
+    q_rot: float = 0.30
     M_tor: float = 0.1         # torus mass in units of the central mass
 
     # numerics that are physics-adjacent enough to belong to the model
-    eps_soft: float = 0.25     # softening of the central point mass
+    eps_soft: float = 0.17     # softening of the central point mass
     # Ambient density, in units of rho_c. Not a free knob: at 1e-6 the cell ahead of
     # the torus surface was swept to the density floor within one step and the timestep
     # collapsed by six orders of magnitude. The 2D model records the same trap.
@@ -121,8 +131,8 @@ class TorusModel:
     # which is what Poisson noise looks like at low m. Set it to ~1/sqrt(2N) of the
     # N-body run being compared against. seed_mode_amplitude() reports what either choice
     # actually delivers, and the checks turn that into e-foldings.
-    pert_amp: float = 3.0e-3
-    pert_mode_amp: float = 0.0
+    pert_amp: float = 0.0
+    pert_mode_amp: float = 2.0e-3
 
     # viscosity: 0 is the collisionless analogue, > 0 is the deliberate departure
     alpha: float = 0.0
