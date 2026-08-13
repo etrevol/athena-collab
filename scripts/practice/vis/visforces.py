@@ -250,15 +250,6 @@ def discover_uov_files(data_dir):
     return info["frames"], info["base"], info["nblocks"]
 
 
-def _count_data_columns(filepath):
-    """Count columns in the first data row (skipping 2 header lines)."""
-    with open(filepath, 'r') as fh:
-        fh.readline()  # header 1
-        fh.readline()  # header 2 (column names)
-        line = fh.readline()
-    return len(line.split())
-
-
 # =============================================================================
 # DATA READING
 # =============================================================================

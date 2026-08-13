@@ -535,31 +535,6 @@ def frame_label(idx, total, time):
 # =============================================================================
 import re
 
-def parse_filename(filename):
-    """Parse Athena++ filename to extract base name, block number, and frame number
-    
-    Examples: 
-        acc_disk.block5.out1.00123.tab -> ('acc_disk', 5, 123, True)
-        pp_disk.block0.out1.00123.tab -> ('pp_disk', 0, 123, True)
-        pp_disk.block0.out1.00123.tab -> ('pp_disk', None, 123, False)  # old format
-    """
-    # Try new format with blocks
-    match = re.match(r'(.+)\.block(\d+)\.out1\.(\d+)\.tab$', filename)
-    if match:
-        base_name = match.group(1)
-        block_num = int(match.group(2))
-        frame_num = int(match.group(3))
-        return base_name, block_num, frame_num, True
-    
-    # Try old format without explicit block number
-    match = re.match(r'(.+)\.out1\.(\d+)\.tab$', filename)
-    if match:
-        base_name = match.group(1)
-        frame_num = int(match.group(2))
-        return base_name, None, frame_num, False
-    
-    return None, None, None, False
-
 def group_files_by_frame(data_dir):
     """Discover frames, whatever the output format.
 
@@ -580,35 +555,6 @@ def group_files_by_frame(data_dir):
 # =============================================================================
 # DATA READING AND PROCESSING FUNCTIONS
 # =============================================================================
-def to_cpu(array):
-    """No-op; kept so the plotting code reads unchanged."""
-    return array
-
-
-def read_athena_2d_single_block(filename):
-    """Read single block of 2D Athena++ file"""
-    with open(filename, 'r') as f:
-        header = f.readline()
-        time_str = header.split('time=')[1].split()[0]
-        cycle_str = header.split('cycle=')[1].split()[0]
-        time = float(time_str)
-        cycle = int(cycle_str)
-    
-    data = np.loadtxt(filename, skiprows=2)
-    
-    # Columns: i, x1v(r), j, x2v(phi), rho, press, vel1(r), vel2(phi), vel3(z)
-    return {
-        'time': time,
-        'cycle': cycle,
-        'r': data[:, 1],
-        'phi': data[:, 3],
-        'rho': data[:, 4],
-        'press': data[:, 5],
-        'vel_r': data[:, 6],
-        'vel_phi': data[:, 7],
-        'vel_z': data[:, 8],
-    }
-
 def read_athena_2d(file_list):
     """One 2D (r, phi) frame, from .athdf or .tab.
 
@@ -705,7 +651,7 @@ def normalize_azimuthal(data):
     for key in ['density', 'pressure', 'vel_r', 'vel_phi', 'vel_z']:
         if key not in data:
             continue
-        field = to_cpu(data[key])
+        field = data[key]
         mean = np.mean(field, axis=0)                     # average over phi, per radius
         if key in RELATIVE_NORM_VARS:
             safe = np.where(np.abs(mean) > 0.0, mean, 1.0)
@@ -766,10 +712,10 @@ def vector_field(data, want_info=False):
     ~1e-14 of the field, which is exactly "no mode was ever seeded".
     """
     raw = data.get('_raw', data)
-    u_r = to_cpu(raw['vel_r']).astype(float)
-    u_phi = to_cpu(raw['vel_phi']).astype(float)
+    u_r = raw['vel_r'].astype(float)
+    u_phi = raw['vel_phi'].astype(float)
     if CONFIG['vec_field'] == 'momentum':
-        rho = to_cpu(raw['density']).astype(float)
+        rho = raw['density'].astype(float)
         u_r, u_phi = rho * u_r, rho * u_phi
 
     comp = CONFIG.get('vec_comp', 'both')
@@ -894,8 +840,8 @@ def _polar_lattice(r, phi):
 
 def _vectors_on_grid(data, polar):
     """(X, Y, U, V) ready for ax.quiver, on whichever grid the view needs."""
-    r, phi = to_cpu(data['r']), to_cpu(data['phi'])
-    R, Phi = to_cpu(data['R']), to_cpu(data['Phi'])
+    r, phi = data['r'], data['phi']
+    R, Phi = data['R'], data['Phi']
     u_r, u_phi = vector_field(data)
     if polar:
         lat = CONFIG.get('vec_lattice', 'polar')
@@ -965,10 +911,10 @@ def overlay_vectors(ax, data, polar, add_key=True, artists=None, scale_from=None
     if not CONFIG.get('vectors'):
         return None
 
-    r = to_cpu(data['r'])
-    phi = to_cpu(data['phi'])
-    R = to_cpu(data['R'])
-    Phi = to_cpu(data['Phi'])
+    r = data['r']
+    phi = data['phi']
+    R = data['R']
+    Phi = data['Phi']
     u_r, u_phi, vinfo = vector_field(data, want_info=True)
     style = CONFIG['vec_style']
     if vinfo['degenerate']:
@@ -1089,7 +1035,7 @@ def _read_frame_for_sampling(args_tuple):
     frame, file_list, var = args_tuple
     try:
         data = read_athena_2d(file_list)  # Disable GPU in workers
-        var_data = to_cpu(data[var]).ravel()
+        var_data = data[var].ravel()
         return var_data
     except Exception as e:
         print(f"Warning: Failed to read frame {frame}: {e}")
@@ -1127,7 +1073,7 @@ def plot_2d_heatmap(data, frame_num, output_dir):
     for idx, var in enumerate(variables):
         if idx < 5:
             ax = axes.flatten()[idx]
-            var_data = to_cpu(data[var])  # Transfer to CPU for matplotlib
+            var_data = data[var]  # Transfer to CPU for matplotlib
             info = VARIABLE_INFO[var]
             
             # Choose normalization
@@ -1141,8 +1087,8 @@ def plot_2d_heatmap(data, frame_num, output_dir):
                     norm = Normalize(vmin=var_data.min(), vmax=var_data.max())
             
             # Draw heatmap
-            R_cpu = to_cpu(data['R'])
-            Phi_cpu = to_cpu(data['Phi'])
+            R_cpu = data['R']
+            Phi_cpu = data['Phi']
             im = ax.pcolormesh(R_cpu, Phi_cpu, var_data, 
                               cmap=info['cmap'], norm=norm, shading='auto')
             ax.set_xlabel('r', fontsize=12)
@@ -1155,9 +1101,9 @@ def plot_2d_heatmap(data, frame_num, output_dir):
     # v_phi panels arrows would only restate what the colour already says.
     ax = axes.flatten()[5]
     if CONFIG.get('vectors'):
-        rho = to_cpu(data['density'])
+        rho = data['density']
         # muted so the black arrows stay legible on top of it
-        ax.pcolormesh(to_cpu(data['R']), to_cpu(data['Phi']), rho,
+        ax.pcolormesh(data['R'], data['Phi'], rho,
                       cmap=VEC_BG_CMAP, shading='auto',
                       norm=(LogNorm(vmin=rho[rho > 0].min(), vmax=rho.max())
                             if np.all(rho > 0) else Normalize()))
@@ -1239,7 +1185,7 @@ def plot_polar(data, frame_num, output_dir):
 
     for idx, var in enumerate(variables):
         ax = plt.subplot(2, 2, idx+1, projection='polar')
-        var_data = to_cpu(data[var])
+        var_data = data[var]
         info = VARIABLE_INFO[var]
         
         # Normalization
@@ -1253,8 +1199,8 @@ def plot_polar(data, frame_num, output_dir):
                 norm = Normalize(vmin=var_data.min(), vmax=var_data.max())
         
         # Polar plot
-        Phi_cpu = to_cpu(data['Phi'])
-        R_cpu = to_cpu(data['R'])
+        Phi_cpu = data['Phi']
+        R_cpu = data['R']
         im = ax.pcolormesh(Phi_cpu, R_cpu, var_data,
                           cmap=info['cmap'], norm=norm, shading='auto')
         ax.set_title(info['label'], fontsize=13, fontweight='bold', pad=20)
@@ -1301,7 +1247,7 @@ def plot_azimuthal_profiles(data, frame_num, output_dir):
     ]
     
     for var, ax, ylabel in variables:
-        var_data = to_cpu(data[var])
+        var_data = data[var]
         for r_idx, color in zip(r_indices, colors):
             profile = var_data[:, r_idx]
             ax.plot(phi, profile, color=color, linewidth=2, 
@@ -1377,7 +1323,7 @@ def create_animation(available_frames, frames_dict, output_dir):
             all_data = []
             for frame in tqdm(frames_to_sample, desc=f"  Sampling {var}"):
                 data = read_athena_2d(frames_dict[frame])
-                all_data.append(to_cpu(data[var]).ravel())
+                all_data.append(data[var].ravel())
             all_data = np.concatenate(all_data)
         
         info = VARIABLE_INFO[var]
@@ -1412,9 +1358,9 @@ def create_animation(available_frames, frames_dict, output_dir):
         else:
             norm = Normalize(vmin=vmin, vmax=vmax)
         
-        R_cpu = to_cpu(first_data['R'])
-        Phi_cpu = to_cpu(first_data['Phi'])
-        var_data = to_cpu(first_data[var])
+        R_cpu = first_data['R']
+        Phi_cpu = first_data['Phi']
+        var_data = first_data[var]
         
         im = ax.pcolormesh(R_cpu, Phi_cpu, var_data,
                           cmap=info['cmap'], norm=norm, shading='auto')
@@ -1429,9 +1375,9 @@ def create_animation(available_frames, frames_dict, output_dir):
     if _vec_on:
         flat = axes.flatten()
         vec_ax = flat[4]
-        rho0 = to_cpu(first_data['density'])
+        rho0 = first_data['density']
         vec_bg = vec_ax.pcolormesh(
-            to_cpu(first_data['R']), to_cpu(first_data['Phi']), rho0, cmap=VEC_BG_CMAP,
+            first_data['R'], first_data['Phi'], rho0, cmap=VEC_BG_CMAP,
             shading='auto',
             norm=(LogNorm(*global_ranges['density']) if global_ranges['density'][0] > 0
                   else Normalize(*global_ranges['density'])))
@@ -1461,11 +1407,11 @@ def create_animation(available_frames, frames_dict, output_dir):
         time_text.set_text(frame_label(frame_idx, len(frames_subset)-1, data['time']))
 
         for idx, var in enumerate(variables):
-            ims[idx].set_array(to_cpu(data[var]).ravel())
+            ims[idx].set_array(data[var].ravel())
 
         nonlocal_out = ims + [time_text]
         if _vec_on:
-            vec_bg.set_array(to_cpu(data['density']).ravel())
+            vec_bg.set_array(data['density'].ravel())
             update.artists = overlay_vectors(vec_ax, data, polar=False,
                                              artists=update.artists)
             nonlocal_out = nonlocal_out + [vec_bg]
@@ -1538,7 +1484,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
             all_data = []
             for frame in tqdm(frames_to_sample, desc=f"  Sampling {var}"):
                 data = read_athena_2d(frames_dict[frame])
-                all_data.append(to_cpu(data[var]).ravel())
+                all_data.append(data[var].ravel())
             all_data = np.concatenate(all_data)
         
         info = VARIABLE_INFO[var]
@@ -1572,7 +1518,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
         axes.append(ax)
         info = VARIABLE_INFO[var]
         
-        var_data = to_cpu(first_data[var])
+        var_data = first_data[var]
         vmin, vmax = global_ranges[var]
         
         if info['log'] and vmin > 0:
@@ -1580,8 +1526,8 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
         else:
             norm = Normalize(vmin=vmin, vmax=vmax)
         
-        Phi_cpu = to_cpu(first_data['Phi'])
-        R_cpu = to_cpu(first_data['R'])
+        Phi_cpu = first_data['Phi']
+        R_cpu = first_data['R']
         im = ax.pcolormesh(Phi_cpu, R_cpu, var_data,
                           cmap=info['cmap'], norm=norm, shading='auto')
         ax.set_title(info['label'], fontsize=13, fontweight='bold', pad=20)
@@ -1620,7 +1566,7 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
         time_text.set_text(frame_label(frame_idx, len(frames_subset)-1, data['time']))
 
         for idx, var in enumerate(variables):
-            ims[idx].set_array(to_cpu(data[var]).ravel())
+            ims[idx].set_array(data[var].ravel())
 
         for i, ax in enumerate(axes):
             if CONFIG['vec_panels'] == 'all' or i == _last:
@@ -1666,10 +1612,10 @@ def create_vector_animation(available_frames, frames_dict, output_dir):
                                   plot="vector_animation"),
                  fontsize=16, fontweight='bold')
 
-    rho = to_cpu(first['density'])
+    rho = first['density']
     lo = np.percentile(rho[rho > 0], CONFIG['vmin_percentile']) if np.any(rho > 0) else None
     hi = np.percentile(rho, CONFIG['vmax_percentile'])
-    bg = ax.pcolormesh(to_cpu(first['Phi']), to_cpu(first['R']), rho, cmap=VEC_BG_CMAP,
+    bg = ax.pcolormesh(first['Phi'], first['R'], rho, cmap=VEC_BG_CMAP,
                        shading='auto',
                        norm=(LogNorm(vmin=lo, vmax=hi) if lo and lo > 0
                              else Normalize(vmin=rho.min(), vmax=hi)))
@@ -1684,7 +1630,7 @@ def create_vector_animation(available_frames, frames_dict, output_dir):
     def update(k):
         data = filter_data_by_bounds(read_athena_2d(frames_dict[frames_subset[k]]), *bounds)
         time_text.set_text(frame_label(k, len(frames_subset)-1, data['time']))
-        bg.set_array(to_cpu(data['density']).ravel())
+        bg.set_array(data['density'].ravel())
         update.art = overlay_vectors(ax, data, polar=True, add_key=False,
                                      artists=update.art)
         return [bg, time_text]

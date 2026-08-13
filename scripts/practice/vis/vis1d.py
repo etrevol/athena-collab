@@ -218,25 +218,6 @@ def _setup(argv=None):
 # FILE PARSING AND GROUPING
 # =============================================================================
 
-def parse_filename(filename):
-    """Parse Athena++ filename to extract base name, block number, and frame number"""
-    # Try new format with blocks
-    match = re.match(r'(.+)\.block(\d+)\.out1\.(\d+)\.tab$', filename)
-    if match:
-        base_name = match.group(1)
-        block_num = int(match.group(2))
-        frame_num = int(match.group(3))
-        return base_name, block_num, frame_num, True
-    
-    # Try old format without explicit block number
-    match = re.match(r'(.+)\.out1\.(\d+)\.tab$', filename)
-    if match:
-        base_name = match.group(1)
-        frame_num = int(match.group(2))
-        return base_name, None, frame_num, False
-    
-    return None, None, None, False
-
 def group_files_by_frame(data_dir):
     """Discover frames, whatever the output format.
 
