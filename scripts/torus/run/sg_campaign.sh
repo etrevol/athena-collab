@@ -43,7 +43,22 @@ for run in "${runs[@]}"; do
   fi
 
   echo "=== ${run}: starting $(date '+%F %T')"
+  python3 "${repo}/scripts/torus/run/describe_run.py" "${dir}" >/dev/null 2>&1 || true
   ( cd "${dir}" && OMP_NUM_THREADS="${threads}" "${bin}" -i athinput >> run.log 2>&1 )
   touch "${dir}/done"
   echo "=== ${run}: finished $(date '+%F %T')"
+
+  # Post-processing runs here rather than by hand afterwards. Every finished run then
+  # carries its own numbers, figures and animation, and nothing has to be remembered
+  # or re-invoked later. Failures are reported but never abort the campaign: a broken
+  # plot must not cost the queued runs behind it.
+  echo "--- ${run}: post-processing"
+  ( cd "${repo}" && python3 scripts/torus/analysis/torus_modes.py "${dir}" --last 0.3 \
+      >> "${dir}/analysis.log" 2>&1 ) || echo "    analysis failed, see analysis.log" >&2
+  ( cd "${repo}" && python3 scripts/torus/analysis/torus_figures.py "${dir}" \
+      -o "${dir}/figs" --multiview >> "${dir}/analysis.log" 2>&1 ) \
+      || echo "    figures failed, see analysis.log" >&2
+  python3 "${repo}/scripts/torus/run/describe_run.py" "${dir}" >/dev/null \
+      || echo "    description failed" >&2
+  echo "--- ${run}: done, see ${dir}/README.md"
 done
