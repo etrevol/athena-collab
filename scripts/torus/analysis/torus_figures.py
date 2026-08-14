@@ -238,7 +238,7 @@ def linear_window(o, A1, lo_factor=20.0, hi_fraction=0.3):
     return w & (A1 > 0)
 
 
-def growth(runs, out_path, fit_window=None):
+def growth(runs, out_path, fit_window=None, problem_id="sg_torus_m1"):
     """ln A_1 against time with the fitted exponential, and the m = 4 grid floor.
 
     The floor is what makes this figure worth drawing: a Cartesian mesh stamps an m = 4
@@ -252,7 +252,7 @@ def growth(runs, out_path, fit_window=None):
     colors = ("#1f77b4", "#d62728", "#2ca02c")
     text = []
     for (label, run), col in zip(runs, colors):
-        hst = os.path.join(run, "sg_torus_m1.hst")
+        hst = os.path.join(run, f"{problem_id}.hst")
         if not os.path.isfile(hst):
             continue
         d = load_history(hst)
