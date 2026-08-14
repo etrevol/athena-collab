@@ -600,6 +600,22 @@ def check(m, setup):
         f"A_1(0) = {tot:.1e} (white {w:.1e} + coherent {c:.1e}); "
         f"{efold:.1f} e-foldings to A_1 = 0.1. The N-body Poisson level is ~2e-3; "
         "white noise alone cannot reach it, use pert_mode_amp", hard=False)
+    # A viscous torus spreads. The box has to hold the spreading, or the run measures
+    # the outer boundary instead of the physics: at alpha = 0.03 the first attempt lost
+    # 92% of its mass by orbit 50, almost all of it streaming out through the faces,
+    # and the suppression of the mode could not be separated from the loss of the torus.
+    if m.alpha > 0.0:
+        nu = m.alpha * m.gamma * (m.Psi_c / (m.n_poly + 1.0))
+        dr = np.sqrt(nu * setup["orbits"] * m.T_orb)          # viscous spreading length
+        row(g["L"] > m.r_out + dr, "box holds viscous spreading",
+            f"sqrt(nu t) = {dr:.2f} over {setup['orbits']:g} orbits, so the torus reaches "
+            f"r ~ {m.r_out + dr:.2f} against a box half-width of {g['L']:.2f}; "
+            f"enlarge the box or shorten the run")
+        t_acc = m.r_in**2 / nu / m.T_orb
+        row(t_acc > 2.0 * setup["orbits"], "torus outlives the run",
+            f"viscous time at r_in is {t_acc:.0f} orbits against a {setup['orbits']:g}-orbit "
+            "run; a mode cannot be measured on a torus that is draining away", hard=False)
+
     row(m.jeans_cells(g["dx"]) >= 4.0, "Jeans resolution",
         f"lambda_J / dx = {m.jeans_cells(g['dx']):.1f} at rho_c (Truelove: >= 4)",
         hard=False)
