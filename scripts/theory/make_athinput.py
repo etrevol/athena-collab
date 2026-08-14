@@ -133,11 +133,20 @@ THEORY_BLOCK = """
 
 
 def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
-          meshblock=None, cfl=0.4, fmt="tab", dfloor=1e-12, pfloor=1e-10,
+          meshblock=None, cfl=0.4, fmt="tab", dfloor=None, pfloor=None,
           visc_rho_cut=None):
     g = model.grid(nx1=nx1, nx2=nx2)
     mb1, mb2 = (meshblock if meshblock else (nx1, nx2))
     visc_cut = visc_rho_cut if visc_rho_cut is not None else 10.0 * model.rho_atm
+    # Floors follow the ambient rather than being fixed constants. A floor eight orders
+    # below rho_atm is not a safety net: the evacuated hole inside the torus drains
+    # freely, its pressure does not follow, and p/rho runs away until the timestep dies
+    # (measured: c_s of 18041 against a normal 125, dt down by three orders). One tenth
+    # of the ambient is the value the 3D model already uses.
+    if dfloor is None:
+        dfloor = 0.1 * model.rho_atm
+    if pfloor is None:
+        pfloor = dfloor * model.cs2_atm * 1.0e-3
 
     body = TEMPLATE.format(
         fmt=fmt, dt_out=model.P_orb / frames_per_orbit, fpo=frames_per_orbit,

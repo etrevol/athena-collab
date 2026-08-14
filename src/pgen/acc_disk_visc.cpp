@@ -53,6 +53,12 @@ namespace {
   Real r_outer;      // Outer disk geometric boundary
 
   // Ambient medium ("atmosphere") -- a genuine equilibrium state, NOT the floor
+  Real eps_soft;     // Softening of the central mass; 0 reproduces the point mass
+  Real pert_amp;     // Per-cell white-noise density seed
+  Real pert_mode_amp;  // Coherent seed amplitude per harmonic, m = 1..5
+  Real rho_body;     // Density above which a cell counts as torus, for diagnostics
+  Real l0_sq;        // l^2 that puts the pressure maximum at r_center
+
   Real rho_atm;      // Ambient density
   Real cs2_atm;      // Ambient p/rho
   Real p_atm;        // Ambient pressure
@@ -80,6 +86,7 @@ void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
                    const AthenaArray<Real> &prim, const AthenaArray<Real> &bcc,
                    int is, int ie, int js, int je, int ks, int ke);
 Real TotalDiskMass(MeshBlock *pmb, int iout);
+Real TorusHistory(MeshBlock *pmb, int iout);
 Real AccretionRate(MeshBlock *pmb, int iout);
 void InnerX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                    FaceField &b, Real time, Real dt,
@@ -90,14 +97,35 @@ void OuterX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 
 //----------------------------------------------------------------------------------------
 //! Geometric shape function f(r) of the Papaloizou-Pringle torus.
+//!
+//! With a softened central mass, Phi = -beta/sqrt(r^2+eps^2), the pressure maximum stays
+//! at r_center only if l^2 = beta r_c^4 / (r_c^2+eps^2)^{3/2}, and the shape function
+//! generalises to
+//!
+//!     f(r) = r_c/sqrt(r^2+eps^2) - r_c^5 / (2 (r_c^2+eps^2)^{3/2} r^2) - C'.
+//!
+//! At eps = 0 this is exactly r_c/r - r_c^2/(2r^2) - C', the original expression, and
+//! the eps = 0 branch is taken literally so that behaviour is unchanged bit for bit.
+//! The equilibrium must be built on the same potential the solver applies: balancing a
+//! torus against a point mass while integrating it in a softened one starts it out of
+//! equilibrium by the difference between them.
 Real DiskFunction(Real r) {
-  Real x = r_center / r;
-  return x - 0.5 * x * x - C_prime;
+  if (eps_soft <= 0.0) {
+    Real x = r_center / r;
+    return x - 0.5 * x * x - C_prime;
+  }
+  return r_center / std::sqrt(r * r + eps_soft * eps_soft)
+         - 0.5 * l0_sq * r_center / (beta_param * r * r) - C_prime;
 }
 
 //! d f / d r
 Real DiskFunctionDeriv(Real r) {
-  return -r_center / (r * r) + r_center * r_center / (r * r * r);
+  if (eps_soft <= 0.0) {
+    return -r_center / (r * r) + r_center * r_center / (r * r * r);
+  }
+  Real s = r * r + eps_soft * eps_soft;
+  return -r_center * r / (s * std::sqrt(s))
+         + l0_sq * r_center / (beta_param * r * r * r);
 }
 
 //! Torus density (identically zero outside the torus surface f <= 0).
@@ -125,8 +153,39 @@ Real DiskPressureDeriv(Real r) {
 //! v_phi^2 from radial force balance; l = const inside the torus, Keplerian outside.
 Real EquilibriumVphi2(Real r) {
   Real rho = DiskDensity(r) + rho_atm;
-  Real v2 = beta_param / r + (r / rho) * DiskPressureDeriv(r);
+  Real g = beta_param / r;                       // point-mass limit
+  if (eps_soft > 0.0) {
+    Real s = r * r + eps_soft * eps_soft;
+    g = beta_param * r * r / (s * std::sqrt(s));
+  }
+  Real v2 = g + (r / rho) * DiskPressureDeriv(r);
   return (v2 > 0.0) ? v2 : 0.0;
+}
+
+//----------------------------------------------------------------------------------------
+//! Reproducible white noise in [-1, 1], hashed from the cell coordinates, and a coherent
+//! seed in the low harmonics. An instability amplifies whatever asymmetry is already
+//! present; a grid started from an analytic profile has almost none, so without a seed
+//! the mode grows out of round-off and nothing is measured in a reasonable run length.
+//! White noise averages down over the cells in the torus and is the weaker of the two;
+//! the coherent seed puts a known amplitude into each of m = 1..5 with its own random
+//! phase, privileging no harmonic. Both default to zero.
+Real CellNoise(Real x, Real y) {
+  auto q = [](Real v) { return static_cast<unsigned int>(
+      static_cast<long long>(std::floor(v * 1.0e6)) & 0xffffffffLL); };
+  unsigned int h = q(x) * 73856093u ^ q(y) * 19349663u;
+  h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+  return 2.0 * (static_cast<Real>(h) / 4294967295.0) - 1.0;
+}
+
+Real ModeNoise(Real phi) {
+  Real s = 0.0;
+  for (int m = 1; m <= 5; ++m) {
+    unsigned int h = 2654435761u * static_cast<unsigned int>(m) + 1013904223u;
+    h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+    s += std::cos(m * phi - 2.0 * PI * (static_cast<Real>(h) / 4294967295.0));
+  }
+  return s;
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
@@ -135,6 +194,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   nu_iso     = pin->GetOrAddReal("problem", "nu_iso", 0.0);
   alpha_visc = pin->GetOrAddReal("problem", "alpha", 0.0);
   gamma_gas  = pin->GetReal("hydro", "gamma");
+
+  eps_soft      = pin->GetOrAddReal("problem", "eps_soft", 0.0);
+  pert_amp      = pin->GetOrAddReal("problem", "pert_amp", 0.0);
+  pert_mode_amp = pin->GetOrAddReal("problem", "pert_mode_amp", 0.0);
 
   rho_floor   = pin->GetOrAddReal("hydro", "dfloor", 1.0e-9);
   press_floor = pin->GetOrAddReal("hydro", "pfloor", 1.0e-10);
@@ -163,6 +226,13 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   // Dimensionless gravity parameter
   beta_param = (C_LIGHT * C_LIGHT) / (2.0 * chi_param * cs0_sq);
+
+  // l^2 that keeps the pressure maximum at r_center under the softened potential;
+  // reduces to beta*r_center at eps = 0.
+  {
+    Real sc = r_center * r_center + eps_soft * eps_soft;
+    l0_sq = beta_param * std::pow(r_center, 4.0) / (sc * std::sqrt(sc));
+  }
 
   // Exact geometric disk boundaries
   Real discriminant = 1.0 - 2.0 * C_prime;
@@ -282,10 +352,25 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   EnrollUserBoundaryFunction(BoundaryFace::inner_x1, InnerX1OutflowBC);
   EnrollUserBoundaryFunction(BoundaryFace::outer_x1, OuterX1OutflowBC);
 
-  // Enroll user history output functions
-  AllocateUserHistoryOutput(2);
+  rho_body = 10.0 * rho_atm;
+
+  // The first two columns keep their names and positions, so anything that already
+  // reads this history file is unaffected. What follows is the same set of mode
+  // diagnostics the 3D generator writes, under the same names, so that the analysis
+  // tools run on 2D and 3D output without knowing which they were given. z-quantities
+  // are present but zero: there is no third dimension here.
+  AllocateUserHistoryOutput(23);
   EnrollUserHistoryOutput(0, TotalDiskMass, "disk_mass", UserHistoryOperation::sum);
   EnrollUserHistoryOutput(1, AccretionRate, "mdot_in", UserHistoryOperation::sum);
+  const char *mnames[21] = {"tor_mass", "tor_mx", "tor_my", "tor_mz",
+                            "a1", "b1", "a2", "b2", "a3", "b3",
+                            "a4", "b4", "a5", "b5",
+                            "E_kin", "E_int", "E_grav_c", "E_grav_self",
+                            "n_dfloor", "n_pfloor", "v_max"};
+  for (int i = 0; i < 21; ++i)
+    EnrollUserHistoryOutput(i + 2, TorusHistory, mnames[i],
+                            i == 20 ? UserHistoryOperation::max
+                                    : UserHistoryOperation::sum);
 
   return;
 }
@@ -297,7 +382,16 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         // Volume-centroid radius: the same radius Athena++'s geometric source term uses.
         Real r = pcoord->x1v(i);
 
-        Real rho   = DiskDensity(r)  + rho_atm;
+        Real rho_d = DiskDensity(r);
+        if (rho_d > 0.0 && (pert_amp > 0.0 || pert_mode_amp > 0.0)) {
+          Real phi = pcoord->x2v(j);
+          Real seed = 0.0;
+          if (pert_amp > 0.0)
+            seed += pert_amp * CellNoise(r * std::cos(phi), r * std::sin(phi));
+          if (pert_mode_amp > 0.0) seed += pert_mode_amp * ModeNoise(phi);
+          rho_d *= 1.0 + seed;
+        }
+        Real rho   = rho_d + rho_atm;
         Real press = DiskPressure(r) + p_atm;
         Real v_r   = 0.0;
         Real v_phi = std::sqrt(EquilibriumVphi2(r));
@@ -341,11 +435,17 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
         Real rv = pmb->pcoord->x1v(i);
         Real src1 = 2.0 / (rm + rp);   // == Coordinates::coord_src1_i_(i)
 
-        // Radial momentum: -rho * beta * <1/r> / r_v
-        cons(IM1,k,j,i) -= dt * prim(IDN,k,j,i) * beta_param * src1 / rv;
+        // Radial momentum: -rho * beta * <1/r> / r_v, times r^3/(r^2+eps^2)^{3/2}
+        // when the mass is softened, which is 1 at eps = 0.
+        Real soft = 1.0;
+        if (eps_soft > 0.0) {
+          Real ss = rv * rv + eps_soft * eps_soft;
+          soft = rv * rv * rv / (ss * std::sqrt(ss));
+        }
+        cons(IM1,k,j,i) -= dt * prim(IDN,k,j,i) * beta_param * src1 * soft / rv;
 
         // Total energy: work done by gravity on the numerical mass flux
-        cons(IEN,k,j,i) -= dt * 0.5 * beta_param
+        cons(IEN,k,j,i) -= dt * 0.5 * beta_param * soft
                            * ( x1flux(IDN,k,j,i)   / (rv * rm)
                              + x1flux(IDN,k,j,i+1) / (rv * rp) );
 
@@ -359,12 +459,14 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
           cons(IM3,k,j,i) = 0.0;
           cons(IEN,k,j,i) = press_floor / gm1
                             + 0.5 * rho_floor * v_phi_atm * v_phi_atm;
+          pmb->ruser_meshblock_data[0](0) += 1.0;
         } else {
           Real e_k = 0.5 * ( SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i))
                            + SQR(cons(IM3,k,j,i)) ) / d;
           Real e_int = cons(IEN,k,j,i) - e_k;
           if (!std::isfinite(e_int) || e_int < press_floor / gm1) {
             cons(IEN,k,j,i) = press_floor / gm1 + e_k;
+            pmb->ruser_meshblock_data[0](1) += 1.0;
           }
         }
       }
@@ -449,6 +551,13 @@ Real AccretionRate(MeshBlock *pmb, int iout) {
 }
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
+  // Two cumulative counters: density- and pressure-floor activations. In a healthy run
+  // both stay at zero; any nonzero value has to be explained before the run is used.
+  AllocateRealUserMeshBlockDataField(1);
+  ruser_meshblock_data[0].NewAthenaArray(2);
+  ruser_meshblock_data[0](0) = 0.0;
+  ruser_meshblock_data[0](1) = 0.0;
+
   AllocateUserOutputVariables(4);
   SetUserOutputVariableName(0, "f_grav");
   SetUserOutputVariableName(1, "f_centr");
@@ -541,4 +650,67 @@ void OuterX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
     }
   }
   return;
+}
+
+
+//----------------------------------------------------------------------------------------
+//! \brief Mode diagnostics, in the same columns and under the same names as the 3D
+//!        generator writes, so one analysis tool serves both geometries.
+//!
+//! All twenty-one come from a single sweep, cached per block and per time: called once
+//! per column they would otherwise cost twenty-one passes over the mesh at every history
+//! dump. Only cells above rho_body contribute, so the ambient cannot masquerade as torus
+//! structure. Coefficients are mass-weighted volume sums; normalised by the torus mass
+//! they are directly comparable with the 3D runs and with published particle counts.
+Real TorusHistory(MeshBlock *pmb, int iout) {
+  static thread_local int cached_gid = -1;
+  static thread_local Real cached_time = -1.0;
+  static thread_local Real v[21];
+
+  Real now = pmb->pmy_mesh->time;
+  if (pmb->gid != cached_gid || now != cached_time) {
+    for (int n = 0; n < 21; ++n) v[n] = 0.0;
+    v[18] = pmb->ruser_meshblock_data[0](0);
+    v[19] = pmb->ruser_meshblock_data[0](1);
+    const Real gm1 = gamma_gas - 1.0;
+
+    for (int k=pmb->ks; k<=pmb->ke; ++k) {
+      for (int j=pmb->js; j<=pmb->je; ++j) {
+        Real phi = pmb->pcoord->x2v(j);
+        for (int i=pmb->is; i<=pmb->ie; ++i) {
+          Real rho = pmb->phydro->w(IDN,k,j,i);
+          Real vr = pmb->phydro->w(IVX,k,j,i);
+          Real vp = pmb->phydro->w(IVY,k,j,i);
+          Real sp = std::sqrt(vr*vr + vp*vp);
+          if (sp > v[20]) v[20] = sp;
+
+          if (rho <= rho_body) continue;
+          Real r = pmb->pcoord->x1v(i);
+          Real dV = pmb->pcoord->GetCellVolume(k,j,i);
+          Real dm = rho * dV;
+
+          v[0] += dm;
+          v[1] += dm * r * std::cos(phi);
+          v[2] += dm * r * std::sin(phi);
+          for (int m = 1; m <= 5; ++m) {
+            v[2*m + 2] += dm * std::cos(m * phi);
+            v[2*m + 3] += dm * std::sin(m * phi);
+          }
+          v[14] += 0.5 * dm * (vr*vr + vp*vp);
+          v[15] += pmb->phydro->w(IPR,k,j,i) * dV / gm1;
+          Real pot = -beta_param / r;
+          if (eps_soft > 0.0)
+            pot = -beta_param / std::sqrt(r*r + eps_soft*eps_soft);
+          v[16] += dm * pot;
+        }
+      }
+    }
+    cached_gid = pmb->gid;
+    cached_time = now;
+  }
+  // The first two history columns belong to TotalDiskMass and AccretionRate, so these
+  // are enrolled from index 2 onwards while the cache is indexed from zero. Returning
+  // v[iout] read two past the end and reported uninitialised memory as physics.
+  int n = iout - 2;
+  return (n >= 0 && n < 21) ? v[n] : 0.0;
 }
