@@ -48,6 +48,7 @@ def _athena_read():
 
 
 T_ORB = 2.0 * np.pi
+_MODE_COLORS = {1: "#1f77b4", 2: "#ff7f0e", 3: "#2ca02c"}
 
 
 def snapshots(run_dir, problem_id="sg_torus_m1"):
@@ -60,7 +61,19 @@ def snapshots(run_dir, problem_id="sg_torus_m1"):
 
 
 def _columns(fn, ar):
-    """Face-on and edge-on column density of one snapshot, plus the time."""
+    """Face-on and edge-on column density of one snapshot, plus the time.
+
+    Index order matters and is easy to get wrong. imshow reads an array as
+    [row, column] and draws rows up the vertical axis, so a map of f(x, y) with x
+    horizontal must be indexed [y, x] -- which is exactly what summing the (z, y, x)
+    density over an axis already gives. These arrays therefore go to imshow untransposed.
+    azimuthal_residual is the exception: it meshgrids with indexing="ij" and wants
+    [x, y], so it is fed face.T and its result is transposed back for display.
+
+    Passing the transpose to imshow does not look broken -- the box is a cube, so the
+    picture is merely rotated by ninety degrees -- but it mirrors the sense of rotation,
+    which is precisely what the pattern speed is about.
+    """
     d = ar.athdf(fn, quantities=["rho"])
     rho = d["rho"]                                    # (z, y, x)
     x, y, z = d["x1v"], d["x2v"], d["x3v"]
@@ -123,7 +136,7 @@ def montage(run_dir, orbits, out_path, problem_id="sg_torus_m1", title=None):
         if vmax is None:
             vmax = face.max()
             vmin = vmax * 3.0e-3     # one and a half decades: the torus, not the vacuum
-        im = _draw(axes[0, c], face.T, [x[0], x[-1], y[0], y[-1]], vmin, vmax,
+        im = _draw(axes[0, c], face, [x[0], x[-1], y[0], y[-1]], vmin, vmax,
                    ("", "$y$"))
         axes[0, c].set_title(f"{t:.0f} $T_{{\\rm orb}}$", fontsize=10)
 
@@ -294,7 +307,7 @@ def movie(run_dir, out_path, max_orbit=40.0, fps=12, problem_id="sg_torus_m1"):
     vmin = vmax * 1e-4
 
     fig, ax = plt.subplots(figsize=(5.4, 5.0))
-    im = _draw(ax, face0.T, [x[0], x[-1], y[0], y[-1]], vmin, vmax, ("$x$", "$y$"))
+    im = _draw(ax, face0, [x[0], x[-1], y[0], y[-1]], vmin, vmax, ("$x$", "$y$"))
     fig.colorbar(im, ax=ax, label="$\\log_{10}\\Sigma$")
     title = ax.set_title("")
 
@@ -302,8 +315,95 @@ def movie(run_dir, out_path, max_orbit=40.0, fps=12, problem_id="sg_torus_m1"):
     with writer.saving(fig, out_path, dpi=130):
         for fn in keep:
             t, face, _, _, _, _ = _columns(fn, ar)
-            im.set_data(np.log10(np.maximum(face.T, vmin)))
+            im.set_data(np.log10(np.maximum(face, vmin)))
             title.set_text(f"t = {t:.1f} $T_{{\\rm orb}}$")
+            writer.grab_frame()
+    plt.close(fig)
+    return out_path
+
+
+def multiview(run_dir, out_path, max_orbit=None, fps=12, problem_id="sg_torus_m1",
+              label=None):
+    """Four panels in one animation: what the torus looks like, and what it measures.
+
+        top left    face-on column density   -- the structure
+        top right   edge-on column density   -- the thickness, which decides everything
+        bottom left azimuthal residual       -- the mode itself, invisible on the density
+        bottom right A_m(t) with a time cursor -- where in its life the frame sits
+
+    The three maps answer "what is happening", and the fourth panel answers "when",
+    which is the part a sequence of images always leaves out: a lopsided frame means
+    something quite different at the peak of the growth than at the end of a decay.
+
+    Colour scales are fixed for the whole animation and taken from the brightest frame,
+    so a torus that is losing mass looks like a torus that is losing mass.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from torus_modes import load_history
+
+    ar = _athena_read()
+    snaps = snapshots(run_dir, problem_id)
+    if not snaps:
+        return None
+    total = _columns(snaps[-1][1], ar)[0]
+    per_orbit = len(snaps) / (total or 1)
+    keep = [fn for i, (_, fn) in enumerate(snaps)
+            if max_orbit is None or i / per_orbit <= max_orbit]
+
+    hst = os.path.join(run_dir, f"{problem_id}.hst")
+    d = load_history(hst) if os.path.isfile(hst) else None
+
+    vmax = None
+    for fn in keep[::max(1, len(keep) // 12)]:
+        _, f, e, _, _, _ = _columns(fn, ar)
+        v = max(f.max(), e.max())
+        vmax = v if vmax is None else max(vmax, v)
+    vmin = vmax * 3.0e-3
+
+    t0, face0, edge0, x, y, z = _columns(keep[0], ar)
+    fig, axes = plt.subplots(2, 2, figsize=(9.6, 8.8), constrained_layout=True)
+
+    imf = _draw(axes[0, 0], face0, [x[0], x[-1], y[0], y[-1]], vmin, vmax, ("$x$", "$y$"))
+    axes[0, 0].set_title("face-on", fontsize=10)
+    ime = _draw(axes[0, 1], edge0, [x[0], x[-1], z[0], z[-1]], vmin, vmax, ("$x$", "$z$"))
+    axes[0, 1].set_title("edge-on", fontsize=10)
+    fig.colorbar(ime, ax=axes[0, :].tolist(), label="$\\log_{10}\\Sigma$", fraction=0.03)
+
+    res0 = azimuthal_residual(face0.T, x, y)
+    imr = axes[1, 0].imshow(res0.T, origin="lower", extent=[x[0], x[-1], y[0], y[-1]],
+                            cmap="RdBu_r", vmin=-0.6, vmax=0.6, aspect="equal")
+    axes[1, 0].plot(0, 0, "o", ms=2.5, color="k")
+    axes[1, 0].set_xlabel("$x$")
+    axes[1, 0].set_ylabel("$y$")
+    axes[1, 0].set_title("$\\Sigma/\\langle\\Sigma\\rangle_\\varphi - 1$", fontsize=10)
+    fig.colorbar(imr, ax=axes[1, 0], label="relative", fraction=0.046)
+
+    axm = axes[1, 1]
+    cursor = None
+    if d is not None:
+        for m in (1, 2, 3):
+            axm.semilogy(d["orbits"], np.maximum(d["A"][m], 1e-6), lw=1.0,
+                         color=_MODE_COLORS[m], label=f"$A_{m}$")
+        axm.set_xlabel("$t\\,/\\,T_{\\rm orb}$")
+        axm.set_ylabel("$A_m\\,/\\,M_{\\rm tor}$")
+        axm.legend(frameon=False, fontsize=9, loc="lower right")
+        axm.set_title("mode amplitudes", fontsize=10)
+        cursor = axm.axvline(0.0, color="0.3", lw=1.2)
+    else:
+        axm.axis("off")
+
+    sup = fig.suptitle("")
+    writer = FFMpegWriter(fps=fps, bitrate=3600)
+    with writer.saving(fig, out_path, dpi=110):
+        for fn in keep:
+            t, face, edge, _, _, _ = _columns(fn, ar)
+            imf.set_data(np.log10(np.maximum(face, vmin)))
+            ime.set_data(np.log10(np.maximum(edge, vmin)))
+            imr.set_data(azimuthal_residual(face.T, x, y).T)
+            if cursor is not None:
+                cursor.set_xdata([t, t])
+            sup.set_text(f"{label or os.path.basename(os.path.normpath(run_dir))}"
+                         f"     t = {t:.1f} $T_{{\\rm orb}}$")
             writer.grab_frame()
     plt.close(fig)
     return out_path
@@ -315,6 +415,8 @@ def main():
     ap.add_argument("-o", "--out", default=None)
     ap.add_argument("--orbits", default="0,10,15,20,25,40")
     ap.add_argument("--no-movie", action="store_true")
+    ap.add_argument("--multiview", action="store_true",
+                    help="four-panel animation of the whole run")
     args = ap.parse_args()
 
     orbits = [float(v) for v in args.orbits.split(",")]
@@ -338,6 +440,12 @@ def main():
             made.append(movie(args.runs[0], os.path.join(out, "growth.mp4")))
         except Exception as exc:                      # ffmpeg missing, codec, ...
             print(f"movie skipped: {exc}", file=sys.stderr)
+
+    if args.multiview:
+        try:
+            made.append(multiview(args.runs[0], os.path.join(out, "multiview.mp4")))
+        except Exception as exc:
+            print(f"multiview skipped: {exc}", file=sys.stderr)
 
     for f in made:
         if f:
