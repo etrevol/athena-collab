@@ -102,7 +102,7 @@ def read_hst(path):
     return {n: arr[:, i] for i, n in enumerate(names)}
 
 
-def load_history(path):
+def load_history(path, T_orb=None):
     """Read the .hst file and derive everything the figures need.
 
     Returns a dict with, besides the raw columns:
@@ -114,6 +114,8 @@ def load_history(path):
         virial   2 E_kin + E_pot
     """
     h = read_hst(path)
+    if T_orb is None:
+        T_orb = orbital_period(os.path.dirname(os.path.abspath(path)))
 
     t = np.asarray(h["time"], dtype=float)
     mass = np.asarray(h["tor_mass"], dtype=float)
@@ -141,7 +143,7 @@ def load_history(path):
                                  for m in range(1, M_MAX + 1)},
                 E_kin=E_kin, E_pot=E_pot, virial=2.0 * E_kin + E_pot,
                 E_int=np.asarray(h["E_int"], dtype=float),
-                orbits=t / (2.0 * np.pi))
+                orbits=t / T_orb, T_orb=T_orb)
 
 
 # -- figures ------------------------------------------------------------------
@@ -208,6 +210,35 @@ def run_parameters(run_dir):
     return out
 
 
+def orbital_period(run_dir):
+    """The orbital period at the torus centre, in the run's own time units.
+
+    The two generators do not share a unit system and neither is wrong. The 3D model
+    uses G = M_c = R_tor = 1, where T_orb = 2 pi. The 2D model normalises to the sound
+    speed, so gravity appears as beta = c^2/(2 chi c_s0^2) and T_orb = 2 pi
+    sqrt(r_c^3/beta), which here is 0.022 - smaller by a factor of 280. Reading a 2D run
+    with the 3D convention would misplace every time by that factor, so the period is
+    derived from the run's own athinput rather than assumed.
+    """
+    p = os.path.join(run_dir, "athinput")
+    if not os.path.isfile(p):
+        return 2.0 * np.pi
+    txt = open(p).read()
+
+    def g(k, default=None):
+        m = re.search(rf"^{k}\s*=\s*([0-9.eE+-]+)", txt, re.M)
+        return float(m.group(1)) if m else default
+
+    r_c = g("r_center", 1.0)
+    if g("chi") is not None and g("T_0") is not None:        # thermodynamic 2D scaling
+        C_LIGHT, K_B, M_P = 2.99792458e10, 1.380649e-16, 1.67262192e-24
+        gam = g("gamma", 5 / 3.)
+        cs0_sq = gam * K_B * g("T_0") / (g("mu", 0.6) * M_P)
+        beta = C_LIGHT**2 / (2.0 * g("chi") * cs0_sq)
+        return 2.0 * np.pi * np.sqrt(r_c**3 / beta)
+    return 2.0 * np.pi * r_c**1.5 / np.sqrt(g("GM_c", 1.0))  # G = M_c = R_tor = 1
+
+
 def corotation_radius(omega_p, q_rot=0.0, eps_soft=0.0):
     """Where the gas rotates at the pattern speed.
 
@@ -235,7 +266,15 @@ def pattern_speed(d, smooth=51):
     """
     phi = np.unwrap(d["Phi"][1])
     t = d["t"]
-    om = np.gradient(phi, t)                      # Omega at R_tor is 1 in these units
+    step = np.median(np.abs(np.diff(phi)))
+    if step > 1.5:
+        print(f"warning: the m = 1 phase advances {step:.2f} rad between history samples."
+              " Above ~pi the unwrapping aliases and the pattern speed, including its"
+              " sign, is meaningless. Write the history more often.", file=sys.stderr)
+    # normalised by the orbital frequency at R_tor, so the number means the same thing
+    # whichever unit system the run used. In the 3D units Omega(R_tor) = 1 and this is
+    # the identity; in the 2D units it divides out a factor of 280.
+    om = np.gradient(phi, t) / (2.0 * np.pi / d["T_orb"])
     if smooth > 1 and len(om) > smooth:
         kern = np.ones(smooth) / smooth
         om = np.convolve(om, kern, mode="same")

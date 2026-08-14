@@ -45,7 +45,7 @@ dcycle     = -1          # cycle increment between outputs (-1 = unused)
 
 <output3>
 file_type  = hst         # output format
-dt         = {dt_out:<12.6g}# time increment between outputs
+dt         = {dt_hst:<12.6g}# time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
 data_format = %24.16e    # output format specifier
 
@@ -148,8 +148,16 @@ def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
     if pfloor is None:
         pfloor = dfloor * model.cs2_atm * 1.0e-3
 
+    # The history file is cheap and is what the mode analysis reads, so it is sampled
+    # far more finely than the snapshots. It has to be: a pattern turning once every
+    # couple of orbits, sampled twice per orbit, advances the phase by ~2 radians per
+    # sample, and unwrapping it then aliases - measured, that reported a retrograde
+    # pattern speed for a prograde mode. Twenty samples per orbit leaves the phase step
+    # near 0.2 rad.
+    dt_hst = model.P_orb / 20.0
+
     body = TEMPLATE.format(
-        fmt=fmt, dt_out=model.P_orb / frames_per_orbit, fpo=frames_per_orbit,
+        fmt=fmt, dt_out=model.P_orb / frames_per_orbit, dt_hst=dt_hst, fpo=frames_per_orbit,
         cfl=cfl, tlim=orbits * model.P_orb, nx1=nx1, nx2=nx2, mb1=mb1, mb2=mb2, dr=g["dr"],
         x1min=g["x1min"], x1max=g["x1max"], gamma=model.gamma, dfloor=dfloor, pfloor=pfloor,
         r_center=model.r_center, C_prime=model.C_prime,
