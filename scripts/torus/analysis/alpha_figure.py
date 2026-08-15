@@ -81,42 +81,44 @@ def figure(points, out_path, title=None):
     x = np.where(a > 0, a, left)
 
     fig, ax = plt.subplots(figsize=(7.8, 4.9))
+    order = np.argsort(x)
+    # one continuous line through every point, markers layered on top: the open ones are
+    # upper limits, but they still belong to the same curve and hiding the connection
+    # would suggest a gap in the scan where there is none
+    ax.plot(x[order], pk[order], "-", color="#1f77b4", lw=1.4, zorder=2)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
     ok = (~dr) & (a > 0)
-    ax.loglog(x[ok], pk[ok], "o-", color="#1f77b4", ms=7, label="peak $A_1$")
+    ax.plot(x[ok], pk[ok], "o", color="#1f77b4", ms=7, zorder=3, label="Peak $A_1$")
     if dr.any():
-        ax.loglog(x[dr], pk[dr], "o", mfc="none", color="#1f77b4", ms=7,
-                  label="upper limit: disk drains before the mode can grow")
+        ax.plot(x[dr], pk[dr], "o", mfc="white", mec="#1f77b4", mew=1.4, ms=7, zorder=3,
+                label="Upper limit: disk drained before the mode grew")
     if (a == 0).any():
-        ax.loglog(x[a == 0], pk[a == 0], "*", color="#1f77b4", ms=16,
-                  label="inviscid ($\\alpha = 0$)")
-    ax.axhline(seed, color="0.55", lw=0.9, ls=":")
-    # mid-axis, where neither the legend nor either curve reaches
-    # opaque box: the label sits on the dotted line and must not blend into it
-    ax.annotate("seed", xy=(x.max() / 8.0, seed), xytext=(0, 0),
+        ax.plot(x[a == 0], pk[a == 0], "*", color="#1f77b4", ms=16, zorder=3,
+                label="Inviscid ($\\alpha = 0$)")
+    ax.axhline(seed, color="0.55", lw=0.9, ls=":", zorder=1)
+    ax.annotate("Seed", xy=(x.max() / 8.0, seed), xytext=(0, 0),
                 textcoords="offset points", ha="center", va="center",
-                fontsize=8.5, color="0.35",
+                fontsize=8.5, color="0.35", zorder=4,
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none"))
-    # room below the seed line so the legend does not sit on the data
     ax.set_ylim(seed / 6.0, max(pk) * 3.0)
-    ax.set_xlabel("$\\alpha$")
-    ax.set_ylabel("peak $A_1 / M_{\\rm tor}$")
+    ax.set_xlabel("Shakura-Sunyaev $\\alpha$")
+    ax.set_ylabel("Peak $A_1 / M_{\\rm tor}$")
 
     ax2 = ax.twinx()
-    ax2.semilogx(x, ms, "s--", color="#d62728", ms=5, alpha=0.75)
-    ax2.set_ylabel("mass remaining [%]", color="#d62728")
+    ax2.semilogx(x[order], ms[order], "s--", color="#d62728", ms=5, alpha=0.75)
+    ax2.set_ylabel("Mass remaining [%]", color="#d62728")
     ax2.set_ylim(0, 105)
 
     top = ax.secondary_xaxis("top", functions=(
         lambda v: 1.0 / (2 * np.pi * np.maximum(v, 1e-12)),
         lambda v: 1.0 / (2 * np.pi * np.maximum(v, 1e-12))))
-    top.set_xlabel("orbits between cloud collisions")
+    top.set_xlabel("Orbits between cloud collisions")
     leg = ax.legend(loc="lower left", fontsize=8.5, borderaxespad=0.6,
                     frameon=True, framealpha=1.0, edgecolor="0.8", borderpad=0.5)
     leg.get_frame().set_linewidth(0.6)
-    # no axes title: the document caption names the figure, and a title here only
-    # crowds the secondary axis label sitting immediately above it
     if title:
-        ax.set_title(title, fontsize=11, pad=26)
+        fig.suptitle(title, fontsize=11, y=0.99)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
