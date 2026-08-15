@@ -51,10 +51,22 @@ T_ORB = 2.0 * np.pi
 _MODE_COLORS = {1: "#1f77b4", 2: "#ff7f0e", 3: "#2ca02c"}
 
 
+def data_dir(run_dir):
+    """Where a run keeps its raw output.
+
+    Runs write into <run>/data/ so that the directory a person opens contains the
+    input, the description and the figures rather than several hundred snapshots.
+    Older runs kept everything at the top level, so both layouts are accepted.
+    """
+    d = os.path.join(run_dir, "data")
+    return d if os.path.isdir(d) else run_dir
+
+
 def snapshots(run_dir, problem_id="sg_torus_m1"):
     """Every snapshot in a run, as (orbit, path), sorted in time."""
     out = []
-    for fn in sorted(glob.glob(os.path.join(run_dir, f"{problem_id}.out1.*.athdf"))):
+    for fn in sorted(glob.glob(os.path.join(data_dir(run_dir),
+                                            f"{problem_id}.out1.*.athdf"))):
         idx = int(re.search(r"\.(\d+)\.athdf$", fn).group(1))
         out.append((idx, fn))
     return out

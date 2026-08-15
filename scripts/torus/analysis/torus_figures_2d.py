@@ -31,7 +31,7 @@ from matplotlib.animation import FFMpegWriter      # noqa: E402
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-from torus_figures import growth                    # noqa: E402
+from torus_figures import growth, data_dir          # noqa: E402
 from torus_modes import load_history, orbital_period   # noqa: E402
 
 
@@ -56,7 +56,8 @@ MODE_COLORS = {1: "#1f77b4", 2: "#ff7f0e", 3: "#2ca02c"}
 def snapshots(run_dir, problem_id="acc_disk_visc"):
     """Snapshot files in time order. The 2D runs write one block, hence one file."""
     out = []
-    for fn in sorted(glob.glob(os.path.join(run_dir, f"{problem_id}*out1*.tab"))):
+    for fn in sorted(glob.glob(os.path.join(data_dir(run_dir),
+                                        f"{problem_id}*out1*.tab"))):
         m = re.search(r"\.(\d+)\.tab$", fn)
         if m:
             out.append((int(m.group(1)), fn))
@@ -148,7 +149,7 @@ def multiview(run_dir, out_path, fps=12, problem_id="acc_disk_visc"):
     if not snaps:
         return None
     T = orbital_period(run_dir)
-    hst = os.path.join(run_dir, f"{problem_id}.hst")
+    hst = os.path.join(data_dir(run_dir), f"{problem_id}.hst")
     d = load_history(hst) if os.path.isfile(hst) else None
 
     vmax = None
@@ -210,7 +211,7 @@ def main():
     made = [montage(args.run_dir, [float(v) for v in args.orbits.split(",")],
                     os.path.join(out, "montage.png"), args.id)]
 
-    hst = os.path.join(args.run_dir, f"{args.id}.hst")
+    hst = os.path.join(data_dir(args.run_dir), f"{args.id}.hst")
     if os.path.isfile(hst):
         made.append(growth([(os.path.basename(os.path.normpath(args.run_dir)),
                              args.run_dir)], os.path.join(out, "growth.png"),

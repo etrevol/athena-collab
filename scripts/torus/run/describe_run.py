@@ -85,7 +85,9 @@ def geometry(p):
 
 def outcome(run_dir, problem_id):
     """Measured quantities, or None when the run has not produced a history file."""
-    hst = os.path.join(run_dir, f"{problem_id}.hst")
+    hst = os.path.join(run_dir, "data", f"{problem_id}.hst")
+    if not os.path.isfile(hst):
+        hst = os.path.join(run_dir, f"{problem_id}.hst")     # pre-data/ layout
     if not os.path.isfile(hst):
         return None
     from torus_modes import (read_hst, load_history, pattern_speed,
