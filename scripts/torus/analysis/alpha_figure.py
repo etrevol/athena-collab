@@ -68,7 +68,7 @@ def collect(campaign, problem_id="acc_disk_visc", min_window=20.0, mass_floor=0.
     return out
 
 
-def figure(points, out_path, title=None):
+def figure(points, out_path, title=None, grid=False):
     if not points:
         return None
     a = np.array([p["alpha"] for p in points])
@@ -80,7 +80,7 @@ def figure(points, out_path, title=None):
     left = a[a > 0].min() / 2.5
     x = np.where(a > 0, a, left)
 
-    fig, ax = plt.subplots(figsize=(7.8, 4.9))
+    fig, ax = plt.subplots(figsize=(7.8, 4.9), constrained_layout=True)
     order = np.argsort(x)
     # one continuous line through every point, markers layered on top: the open ones are
     # upper limits, but they still belong to the same curve and hiding the connection
@@ -102,7 +102,7 @@ def figure(points, out_path, title=None):
                 fontsize=8.5, color="0.35", zorder=4,
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none"))
     ax.set_ylim(seed / 6.0, max(pk) * 3.0)
-    ax.set_xlabel("Shakura-Sunyaev $\\alpha$")
+    ax.set_xlabel("$\\alpha$")
     ax.set_ylabel("Peak $A_1 / M_{\\rm tor}$")
 
     ax2 = ax.twinx()
@@ -117,9 +117,15 @@ def figure(points, out_path, title=None):
     leg = ax.legend(loc="lower left", fontsize=8.5, borderaxespad=0.6,
                     frameon=True, framealpha=1.0, edgecolor="0.8", borderpad=0.5)
     leg.get_frame().set_linewidth(0.6)
+    if grid:
+        # log minor ticks are dense; keep them faint so the data stays dominant
+        ax.grid(which="major", color="0.85", lw=0.6, zorder=0)
+        ax.grid(which="minor", color="0.93", lw=0.4, zorder=0)
+        ax.set_axisbelow(True)
     if title:
-        fig.suptitle(title, fontsize=11, y=0.99)
-    fig.tight_layout()
+        # constrained_layout reserves the space, so the gap to the secondary axis
+        # label below is set by the layout engine rather than guessed at
+        fig.suptitle(title, fontsize=11)
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
@@ -131,10 +137,11 @@ def main():
     ap.add_argument("-o", "--out", required=True)
     ap.add_argument("--id", default="acc_disk_visc")
     ap.add_argument("--title", default=None)
+    ap.add_argument("--grid", action="store_true", help="draw a background grid")
     args = ap.parse_args()
     pts = collect(args.campaign, args.id)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    print(figure(pts, args.out, args.title) or "no usable runs")
+    print(figure(pts, args.out, args.title, args.grid) or "no usable runs")
     for p in pts:
         flag = "  (upper limit)" if p["drains"] else ""
         print(f"  alpha={p['alpha']:<8} peak={p['peak']:.2e}  mass={p['mass']:5.0f}%"
