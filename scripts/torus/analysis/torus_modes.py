@@ -115,7 +115,7 @@ def load_history(path, T_orb=None):
     """
     h = read_hst(path)
     if T_orb is None:
-        T_orb = orbital_period(os.path.dirname(os.path.abspath(path)))
+        T_orb = orbital_period(run_root(path))
 
     t = np.asarray(h["time"], dtype=float)
     mass = np.asarray(h["tor_mass"], dtype=float)
@@ -210,6 +210,20 @@ def run_parameters(run_dir):
     return out
 
 
+def run_root(path):
+    """The run directory, given anything inside it.
+
+    Raw output lives in <run>/data/ while the athinput stays at <run>/, so a function
+    handed the history file must climb out of data/ to find the parameters. Getting this
+    wrong is silent: the period falls back to 2 pi, which is right for the 3D units and
+    wrong by a factor of 280 for the 2D ones.
+    """
+    d = os.path.abspath(path)
+    if os.path.isfile(d):
+        d = os.path.dirname(d)
+    return os.path.dirname(d) if os.path.basename(d) == "data" else d
+
+
 def orbital_period(run_dir):
     """The orbital period at the torus centre, in the run's own time units.
 
@@ -220,7 +234,7 @@ def orbital_period(run_dir):
     with the 3D convention would misplace every time by that factor, so the period is
     derived from the run's own athinput rather than assumed.
     """
-    p = os.path.join(run_dir, "athinput")
+    p = os.path.join(run_root(run_dir), "athinput")
     if not os.path.isfile(p):
         return 2.0 * np.pi
     txt = open(p).read()
@@ -373,7 +387,10 @@ def format_table(s, pars=None):
 def density_maps(run_dir, problem_id, index, out_path):
     """Face-on and edge-on column density of one snapshot. Their Fig. 2."""
     athena_read = _load_athena_read()
-    fn = os.path.join(run_dir, f"{problem_id}.out1.{index:05d}.athdf")
+    base = os.path.join(run_dir, "data")
+    if not os.path.isdir(base):
+        base = run_dir
+    fn = os.path.join(base, f"{problem_id}.out1.{index:05d}.athdf")
     if not os.path.isfile(fn):
         return None
     data = athena_read.athdf(fn, quantities=["rho"])
@@ -419,7 +436,9 @@ def main():
     out = args.out or os.path.join(args.run_dir, "figs")
     os.makedirs(out, exist_ok=True)
 
-    hst = os.path.join(args.run_dir, f"{args.id}.hst")
+    hst = os.path.join(args.run_dir, "data", f"{args.id}.hst")
+    if not os.path.isfile(hst):
+        hst = os.path.join(args.run_dir, f"{args.id}.hst")   # pre-data/ layout
     if not os.path.isfile(hst):
         sys.exit(f"no history file at {hst}")
     d = load_history(hst)
@@ -436,7 +455,9 @@ def main():
 
     # the last snapshot that exists
     import glob
-    snaps = sorted(glob.glob(os.path.join(args.run_dir, f"{args.id}.out1.*.athdf")))
+    snaps = sorted(glob.glob(os.path.join(args.run_dir, "data",
+                                          f"{args.id}.out1.*.athdf"))) or \
+            sorted(glob.glob(os.path.join(args.run_dir, f"{args.id}.out1.*.athdf")))
     if snaps:
         idx = int(os.path.basename(snaps[-1]).split(".")[-2])
         density_maps(args.run_dir, args.id, idx, os.path.join(out, "density.png"))

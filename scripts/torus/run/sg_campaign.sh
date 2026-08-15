@@ -44,7 +44,11 @@ for run in "${runs[@]}"; do
 
   echo "=== ${run}: starting $(date '+%F %T')"
   python3 "${repo}/scripts/torus/run/describe_run.py" "${dir}" >/dev/null 2>&1 || true
-  ( cd "${dir}" && OMP_NUM_THREADS="${threads}" "${bin}" -i athinput >> run.log 2>&1 )
+  # Raw output goes to <run>/data/ so that the run directory itself stays readable:
+  # input, description and figures, not several hundred snapshots.
+  mkdir -p "${dir}/data"
+  ( cd "${dir}/data" && OMP_NUM_THREADS="${threads}" "${bin}" -i ../athinput \
+        >> ../run.log 2>&1 )
   touch "${dir}/done"
   echo "=== ${run}: finished $(date '+%F %T')"
 
