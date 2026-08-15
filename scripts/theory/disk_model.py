@@ -67,7 +67,26 @@ class DiskModel:
     rho_0: float = 1.0e-13   # reference density [g/cm^3]
 
     # disk geometry / thermodynamics
-    gamma: float = 1.3       # adiabatic index
+    # 5/3, the monatomic value, and it is a physical statement rather than a default.
+    # The geometry fixes the temperature: a torus with H/R ~ 0.3 at 500 r_g must have
+    # c_s ~ 3000 km/s, hence T ~ 5e8 K. At that temperature two readings are possible
+    # and they need different gamma.
+    #
+    #   optically thin, radiatively inefficient (ADAF): the photons escape without
+    #       acting on the gas, so the flow really is adiabatic and the pressure is that
+    #       of an ionised non-relativistic plasma -> gamma = 5/3. H/R comes out 0.447,
+    #       which is where ADAF solutions live.
+    #   optically thick, radiation trapped: the pressure is the photons' -> gamma = 4/3.
+    #       But then radiation diffuses out and cools the flow, and an adiabatic model
+    #       with no transport contradicts itself.
+    #
+    # This model has no cooling, so only the first reading is self-consistent. The
+    # earlier value of 1.3 sat between the two and belonged to neither.
+    #
+    # Note what does NOT change: P_orb = 2 pi L_0 sqrt(2 chi)/c is independent of gamma,
+    # T_0 and mu, so the object being described is the same 1.40 yr orbit as before.
+    # Only its thermodynamic description changes.
+    gamma: float = 5.0 / 3.0  # adiabatic index
     r_center: float = 1.0    # density maximum, in units of r_0
     C_prime: float = 0.2     # thickness parameter, must be < 0.5
 
