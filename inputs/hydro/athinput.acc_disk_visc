@@ -9,25 +9,25 @@ problem_id = acc_disk_visc  # basename of output filenames
 <output1>
 file_type  = tab         # output format
 variable   = prim        # variables to be output
-dt         = 0.00198191  # time increment between outputs
+dt         = 0.00224407  # time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
 
 <output2>
 file_type  = tab         # output format
 variable   = uov         # variables to be output
-dt         = 0.00198191  # time increment between outputs
+dt         = 0.00224407  # time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
 
 <output3>
 file_type  = hst         # output format
-dt         = 0.00198191  # time increment between outputs
+dt         = 0.00112203  # time increment between outputs
 dcycle     = -1          # cycle increment between outputs (-1 = unused)
 data_format = %24.16e    # output format specifier
 
 <time>
 cfl_number = 0.4         # Courant, Friedrichs & Lewy number
 nlim       = -1          # cycle limit (-1 = unlimited)
-tlim       = 1.98191     # time limit
+tlim       = 2.24407     # time limit
 integrator = vl2         # time integration algorithm
 xorder     = 2           # order of spatial reconstruction
 ncycle_out = 50          # interval for stdout summary info
@@ -58,9 +58,9 @@ nx2 = 128           # MeshBlock size in X2-direction
 nx3 = 1             # MeshBlock size in X3-direction
 
 <hydro>
-gamma  = 1.3           # ratio of specific heats
-dfloor = 1e-12         # density floor
-pfloor = 1e-10         # pressure floor
+gamma  = 1.6666666666666667# ratio of specific heats
+dfloor = 1e-05         # density floor
+pfloor = 9.4074e-05    # pressure floor
 
 <problem>
 r_center = 1.0         # radius of the disk density maximum
@@ -81,21 +81,21 @@ chi      = 500         # spatial scaling factor r_0 / r_g
 # ==============================================================================
 # DERIVED QUANTITIES
 # ==============================================================================
-# Sound speed cs0            : 2.990362e+06 cm/s
-# Polytropic index n         : 3.333333
-# Gravity parameter beta     : 1.005064e+05
+# Sound speed cs0            : 3.385919e+06 cm/s
+# Polytropic index n         : 1.500000
+# Gravity parameter beta     : 7.839501e+04
 # Disk inner radius r_in     : 0.563508
 # Disk outer radius r_out    : 4.436492
-# Orbital period P_orb       : 1.981906e-02
+# Orbital period P_orb       : 2.244066e-02
 #
 # Disk geometry              : R_in 0.0012 pc, R_out 0.0096 pc
 # Orbital period             : 1.40 yr
 #
 # Schwarzschild radius r_g   : 1.328963e+13 cm
 # Length scale L_0           : 6.644813e+15 cm (0.0022 pc)
-# Time scale t_0             : 2.222076e+09 s (70.4 yr)
+# Time scale t_0             : 1.962485e+09 s (62.2 yr)
 # Mass scale                 : 14.7551 M_sun per code unit
-# Mdot scale                 : 0.209550 M_sun/yr per code unit
+# Mdot scale                 : 0.237268 M_sun/yr per code unit
 #
 # Viscosity (alpha = 0)
 #   nu_iso                   : 0.000000e+00
