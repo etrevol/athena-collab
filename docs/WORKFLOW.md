@@ -75,6 +75,23 @@ turns out to have been unusable; do not rely on remembering.
 - **A collapsed timestep freezes model time while cycles keep running.** Watch model
   time, not cycle count, and not the last logged `dt`.
 
+## Measuring an amplitude on a disk that is disappearing
+
+Two mistakes here were each found only after they had produced a plausible number.
+
+**Take the peak while the disk is still there.** A viscously draining disk grows lopsided
+as it accretes, so the mode amplitude climbs monotonically to the last snapshot without
+ever saturating. A maximum over the whole run then reports the drainage: in the
+dissipation scan it inflated one point by a factor of 37 and lifted it off an otherwise
+monotonic curve. Measure only while the disk holds most of its mass, and say which
+window was used.
+
+**A short window has two causes and they are opposite.** Below a suppression threshold
+the window closes because the mode destroyed the disk, and the peak inside it is the real
+saturated value. Above it, the window closes because something else drained the disk
+first, and the value is only an upper limit. Distinguish them - whether the amplitude
+ever rose far above its seed does it - and mark the difference on the figure.
+
 ## Diagnostics
 
 Mode coefficients are volume sums written to the history file every cycle, so mode
