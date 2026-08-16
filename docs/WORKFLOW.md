@@ -79,7 +79,13 @@ turns out to have been unusable; do not rely on remembering.
   one. Check the box against the run length.
 - **An instability amplifies whatever asymmetry is already present**, including the
   grid's own. Seed the low harmonics coherently and check the seed sits above the grid
-  imprint, or the measurement is of the mesh. The seed does not set the rate — verified
+  imprint, or the measurement is of the mesh. **In 2D cylindrical there is no imprint at
+  all**: an axisymmetric start makes every cell in a phi-ring bitwise identical to its
+  neighbours, so the scheme preserves axisymmetry exactly and no mode can ever start.
+  Measured, an unseeded inviscid run holds `A_1 = 6.5e-14` flat for 23 orbits while the
+  instability would have multiplied it by 2e9. A quiet unperturbed run is therefore a
+  statement about the initial conditions, never about stability. The seed does not set
+  the rate — verified
   in `results/seedtest/`, where a factor of 1100 in initial amplitude and a change of
   seed type move the growth rate by 11% and the onset of the exponential phase by 4.5
   orbits. Fit the rate strictly before the first saturation: a saturated mode oscillates
