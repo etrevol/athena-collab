@@ -51,6 +51,14 @@ minutes against hours. Parameter surveys are done in 2D and only the interesting
 are repeated in 3D. This is only valid once 2D and 3D have been checked against each
 other on the same physics — do that check before trusting any 2D survey.
 
+**Frequencies converge, amplitudes do not.** The constant-`l` run repeated at 128^3
+against 96^3 moves the pattern speed by 1.8% and the harmonic ratio `k` by 1.3%, but the
+growth rate by 8% and the peak amplitude by 18%. Quote amplitudes to two significant
+figures and no further, and run every scan at one resolution throughout so that its points
+differ by the parameter rather than by the mesh. The two quantities compared against
+published work happen to fall in the converged group; that is luck, not design, and it
+needs checking again whenever a new quantity is compared.
+
 **Every run is visualised when it finishes**, not when someone gets round to it. A figure
 made months later competes with the memory of what the run was for.
 
