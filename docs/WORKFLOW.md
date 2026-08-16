@@ -79,7 +79,11 @@ turns out to have been unusable; do not rely on remembering.
   one. Check the box against the run length.
 - **An instability amplifies whatever asymmetry is already present**, including the
   grid's own. Seed the low harmonics coherently and check the seed sits above the grid
-  imprint, or the measurement is of the mesh.
+  imprint, or the measurement is of the mesh. The seed does not set the rate — verified
+  in `results/seedtest/`, where a factor of 1100 in initial amplitude and a change of
+  seed type move the growth rate by 11% and the onset of the exponential phase by 4.5
+  orbits. Fit the rate strictly before the first saturation: a saturated mode oscillates
+  back down through the fitting band and flattens the slope.
 - **A collapsed timestep freezes model time while cycles keep running.** Watch model
   time, not cycle count, and not the last logged `dt`.
 
