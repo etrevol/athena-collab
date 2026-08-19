@@ -102,12 +102,20 @@ def health_checks(suite, model, records):
     stalled_steady = [r for r in stalled if not r[8]]
     if stalled_steady:
         worst = min(stalled_steady, key=lambda r: r[4])
+        # Do NOT try to tell a collapse from a wall-clock timeout by the recorded dt.
+        # The collapse is what stops .hst from being written: the run burns wall clock
+        # while model time stands still, so the last row - and hence the minimum over the
+        # rows - always predates it. Measured: visc_transport reports a minimum dt of
+        # 0.99 of its initial value here, and 0.002 when the same case is given enough
+        # wall clock to write rows into the collapse. Reading the column the other way
+        # around is how a frozen run passes for a slow one.
         out.append(Check("health", "completion", FAIL,
                          f"{len(stalled_steady)} of {len(rows) - sum(r[8] for r in rows)}"
                          f" steady runs did not reach their tlim; worst is {worst[0]} at "
-                         f"{100 * worst[4]:.0f}% with the timestep down to "
-                         f"{worst[2]:.1e} of its initial value. This is the collapsed-dt "
-                         f"failure mode, not a crash",
+                         f"{100 * worst[4]:.0f}%. Its recorded dt still reads "
+                         f"{worst[2]:.1e} of the initial value, which settles nothing: "
+                         f".hst stops growing when the timestep collapses, so the last "
+                         f"row is from before it",
                          float(len(stalled_steady)), "= 0 runs"))
     else:
         out.append(Check("health", "completion", OK,

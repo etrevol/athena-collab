@@ -74,6 +74,7 @@ rho_atm      = 0.0001  # ambient medium density
 t_atm_frac   = 1       # ambient p/rho, in units of the disk mid-plane value
 visc_rho_cut = 0.001   # density below which viscosity is tapered to zero
 
+init_form    = average  # store cell averages or centroid point values: average | point
 vphi_init    = analytic # initial rotation balance: discrete | analytic
 
 pert_amp     = 0       # seed delta v_r, in units of the local sound speed (0 = off)

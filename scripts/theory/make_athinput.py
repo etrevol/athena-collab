@@ -100,6 +100,7 @@ rho_atm      = {rho_atm:<8.6g}# ambient medium density
 t_atm_frac   = {t_atm_frac:<8.6g}# ambient p/rho, in units of the disk mid-plane value
 visc_rho_cut = {visc_cut:<8.6g}# density below which viscosity is tapered to zero
 
+init_form    = {init_form:<9}# store cell averages or centroid point values: average | point
 vphi_init    = {vphi_init:<9}# initial rotation balance: discrete | analytic
 
 pert_amp     = {pert_amp:<8.6g}# seed delta v_r, in units of the local sound speed (0 = off)
@@ -152,10 +153,12 @@ THEORY_BLOCK = """
 def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
           meshblock=None, cfl=0.4, fmt="tab", dfloor=1e-12, pfloor=1e-10,
           visc_rho_cut=None, pert_amp=0.0, pert_kind="single", pert_m=2, pert_seed=1,
-          vphi_init="analytic"):
+          vphi_init="analytic", init_form="average"):
     g = model.grid(nx1=nx1, nx2=nx2)
     mb1, mb2 = (meshblock if meshblock else (nx1, nx2))
     visc_cut = visc_rho_cut if visc_rho_cut is not None else 10.0 * model.rho_atm
+    if init_form not in ("average", "point"):
+        raise ValueError(f"init_form={init_form!r} must be average or point")
     if vphi_init not in ("discrete", "analytic"):
         raise ValueError(f"vphi_init={vphi_init!r} must be discrete or analytic")
     if pert_kind not in ("single", "multi", "noise"):
@@ -168,7 +171,7 @@ def build(model, orbits=100.0, frames_per_orbit=10.0, nx1=176, nx2=128,
         r_center=model.r_center, C_prime=model.C_prime,
         nu_iso=(1.0 if model.alpha > 0 else 0.0), alpha=model.alpha,
         rho_atm=model.rho_atm, t_atm_frac=model.t_atm_frac, visc_cut=visc_cut,
-        vphi_init=vphi_init,
+        vphi_init=vphi_init, init_form=init_form,
         pert_amp=pert_amp, pert_kind=pert_kind, pert_m=pert_m, pert_seed=pert_seed,
         M_bh=model.M_bh, rho_0=model.rho_0, T_0=model.T_0,
         mu=model.mu, chi=model.chi)
@@ -217,6 +220,10 @@ def main(argv=None):
                     choices=["discrete", "analytic"],
                     help="balance the initial rotation against the analytic pressure "
                          "gradient (default) or the finite-volume one")
+    ap.add_argument("--init-form", default="average",
+                    choices=["average", "point"],
+                    help="store cell averages of the initial profiles (default) or "
+                         "point values at the centroid")
     ap.add_argument("--pert-amp", type=float, default=0.0,
                     help="seed delta v_r / c_s for the PP modes (0 = axisymmetric run)")
     ap.add_argument("--pert-kind", default="single", choices=["single", "multi", "noise"])
@@ -229,7 +236,7 @@ def main(argv=None):
                       rho_atm=a.rho_atm)
     text = build(model, orbits=a.orbits, frames_per_orbit=a.frames_per_orbit,
                  nx1=a.nx1, nx2=a.nx2, meshblock=a.meshblock, cfl=a.cfl, fmt=a.fmt,
-                 vphi_init=a.vphi_init,
+                 vphi_init=a.vphi_init, init_form=a.init_form,
                  pert_amp=a.pert_amp, pert_kind=a.pert_kind, pert_m=a.pert_m,
                  pert_seed=a.pert_seed)
 
