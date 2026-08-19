@@ -66,6 +66,10 @@ namespace {
   Real p_atm;        // Ambient pressure
   Real visc_rho_cut; // Density below which alpha-viscosity is smoothly switched off
 
+  // Initial rotation: balance v_phi against the analytic pressure gradient, or against
+  // the finite-volume one the solver actually applies. See DiscreteVphi2().
+  bool vphi_discrete;
+
   // Seed perturbation for the non-axisymmetric modes (off by default)
   Real pert_amp;              // amplitude of delta v_r, in units of the local c_s
   int  pert_m;                // azimuthal mode (single), or highest mode (multi)
@@ -149,6 +153,48 @@ Real DiskPressureDeriv(Real r) {
 Real EquilibriumVphi2(Real r) {
   Real rho = DiskDensity(r) + rho_atm;
   Real v2 = beta_param / r + (r / rho) * DiskPressureDeriv(r);
+  return (v2 > 0.0) ? v2 : 0.0;
+}
+
+//----------------------------------------------------------------------------------------
+//! \brief v_phi^2 from the DISCRETE radial balance, in the finite-volume form the solver
+//!        steps with: the pressure term is the divergence of face pressures over the cell
+//!        volume plus the geometric source, not a pointwise derivative.
+//!
+//! The analytic form above balances the exact dp/dr. Where the torus surface is thinner
+//! than a cell that is not the gradient the scheme sees: measured at 128^2, the discrete
+//! gradient in the transition cell is 11x the analytic one, leaving 16% of gravity
+//! unbalanced there against 5e-6 two cells away. That cell is then flung out, and it is
+//! the same cell the viscous front keeps re-creating as it moves in.
+//!
+//! Uniform pressure gives (A_+ - A_-)/V = s1 exactly, so the ambient still reduces to
+//! v_phi^2 = beta/r_v and stays an exact discrete equilibrium.
+//!
+//! MEASURED, AND IT IS NOT THE FIX. At 128^2 this moves the ambient from 4.6e-15 to
+//! 1.3e-16, as intended, but the transition cell goes from -0.365 to +0.963: the
+//! correction overshoots through zero, and core, surface and funnel all get worse. The
+//! face pressures here are point values of the analytic profile, whereas the scheme
+//! reconstructs faces from cell averages with a limiter, which flattens them where the
+//! profile is steep - and p ~ (r - r_in)^4 makes the outer face of that cell some
+//! eighty times its centre value. So this is a different wrong operator, not the right
+//! one, and <problem>/vphi_init defaults to "analytic" until the reconstruction is
+//! matched. Kept because the overshoot is the measurement that says so.
+Real DiscreteVphi2(Coordinates *pco, int k, int j, int i) {
+  Real rm = pco->x1f(i);
+  Real rp = pco->x1f(i+1);
+  Real rv = pco->x1v(i);
+  Real s1 = 2.0 / (rm + rp);
+  Real vol = pco->GetCellVolume(k, j, i);
+  Real a_m = pco->GetFace1Area(k, j, i);
+  Real a_p = pco->GetFace1Area(k, j, i+1);
+
+  Real rho = DiskDensity(rv) + rho_atm;
+  Real p_c = DiskPressure(rv) + p_atm;
+  Real p_m = DiskPressure(rm) + p_atm;
+  Real p_p = DiskPressure(rp) + p_atm;
+
+  Real grad = (a_p * p_p - a_m * p_m) / vol - s1 * p_c;
+  Real v2 = beta_param / rv + grad / (s1 * rho);
   return (v2 > 0.0) ? v2 : 0.0;
 }
 
@@ -249,6 +295,21 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   // Viscosity is tapered off in the ambient, removing artificial torque at the boundaries.
   visc_rho_cut = pin->GetOrAddReal("problem", "visc_rho_cut", 10.0 * rho_atm);
+
+  // Initial rotation. "discrete" starts the torus in equilibrium of the operators it is
+  // stepped with; "analytic" reproduces the older behaviour for comparison.
+  std::string vphi_mode = pin->GetOrAddString("problem", "vphi_init", "analytic");
+  if (vphi_mode == "discrete") {
+    vphi_discrete = true;
+  } else if (vphi_mode == "analytic") {
+    vphi_discrete = false;
+  } else {
+    std::stringstream msg;
+    msg << "### FATAL ERROR in acc_disk_visc_vv.cpp" << std::endl
+        << "Unknown <problem>/vphi_init = '" << vphi_mode << "'." << std::endl
+        << "Expected one of: discrete, analytic." << std::endl;
+    ATHENA_ERROR(msg);
+  }
 
   // Seed perturbation. Zero amplitude reproduces the unperturbed run bit for bit.
   pert_amp  = pin->GetOrAddReal("problem", "pert_amp", 0.0);
@@ -360,6 +421,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     std::cout << "  Adiabatic Index (gamma):        " << gamma_gas << std::endl;
     std::cout << "  Polytropic Index (n):           " << n_poly << std::endl;
     std::cout << "  Alpha Viscosity Parameter:      " << alpha_visc << std::endl;
+    std::cout << "  Initial rotation balance:       " << vphi_mode << std::endl;
     std::cout << "  Inner Geometric Boundary:       " << r_inner << std::endl;
     std::cout << "  Outer Geometric Boundary:       " << r_outer << std::endl;
     std::cout << "  --- Mid-plane State (interpretation, not an input) ---" << std::endl;
@@ -442,7 +504,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         Real rho   = DiskDensity(r)  + rho_atm;
         Real press = DiskPressure(r) + p_atm;
         Real v_r   = 0.0;
-        Real v_phi = std::sqrt(EquilibriumVphi2(r));
+        Real v_phi = std::sqrt(vphi_discrete ? DiscreteVphi2(pcoord, k, j, i)
+                                            : EquilibriumVphi2(r));
 
         if (pert_amp > 0.0) {
           Real env = PerturbationEnvelope(r);

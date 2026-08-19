@@ -875,6 +875,85 @@ def ring_checks(suite, model, cfg):
     return out, data
 
 
+# ------------------------------------------------------------------ 8b. viscous ambient
+
+
+def _recover_alpha(suite, model, cid):
+    """alpha from the stress the solver applied, inverted with the rotation law taken
+    from the data. See viscosity_checks() for why the textbook -(3/2) alpha p is wrong
+    for an l = const torus."""
+    uov = analysis.read_frame(suite.case_dir_path(cid), out_id=2, index=-1)
+    prim = analysis.read_frame(suite.case_dir_path(cid), out_id=1, index=-1)
+    if uov is None or prim is None or "T_rphi" not in uov:
+        return np.nan
+    r, _, gu = grid_2d(uov)
+    _, _, gp = grid_2d(prim)
+    omega = gp["vel2"].mean(axis=0) / r
+    omega_k = np.sqrt(model.beta) * r**-1.5
+    shear = r * np.gradient(omega, r)
+    t_mean = gu["T_rphi"].mean(axis=0)
+    p_mean = gp["press"].mean(axis=0)
+    body = (model.rho_disk(r) > 10 * model.rho_atm) & (np.abs(shear) > 0)
+    if not body.any():
+        return np.nan
+    a_r = t_mean * omega_k / (model.gamma * p_mean * shear)
+    return float(np.average(a_r[body], weights=p_mean[body]))
+
+
+def viscatm_checks(suite, model, cfg):
+    """Does the ambient decide the answer, or only whether the run survives?
+
+    The plateau in sensitivity_checks is measured at alpha = 0, where the torus edge does
+    not move. Under viscosity it moves inward and runs into the ambient, so the two
+    questions come apart: a value of rho_atm can be too thin to integrate through and
+    still be irrelevant to what is being measured. Reporting them as one number is what
+    made rho_atm look like a physical parameter.
+    """
+    out, data = [], {}
+    want = 2.0
+    rows = []
+    for rho_atm in (1e-3, 3e-4, 1e-4):
+        cid = f"viscatm_{rho_atm:g}"
+        h = analysis.hst(suite.case_dir_path(cid))
+        if h is None:
+            continue
+        rows.append((rho_atm,
+                     float(h["time"][-1]) / model.P_orb,
+                     float(h["dt"][-1]) / float(h["dt"][1]),
+                     analysis.max_floor_hits(h),
+                     float(np.max(h["max_vr"])),
+                     _recover_alpha(suite, model, cid)))
+    data["viscatm_rows"] = rows
+    if not rows:
+        return [Check("viscatm", "ladder", WARN, "no viscous ambient runs")], data
+
+    survived = [r for r in rows if r[1] >= 0.98 * want]
+    out.append(Check("viscatm", "stability", OK if survived else FAIL,
+                     "; ".join(f"rho_atm {r[0]:g}: reached {r[1]:.2f} of {want:g} orbits, "
+                               f"dt fell to {r[2]:.1e}, max|v_r| {r[4]:.1e}" for r in rows)
+                     + f". {len(survived)} of {len(rows)} carried the viscous front "
+                       f"through; the ambient is what sits ahead of it, and a thinner "
+                       f"one has less inertia to give",
+                     float(len(survived)), ">= 1 level"))
+
+    good = [r for r in survived if np.isfinite(r[5])]
+    if len(good) >= 2:
+        spread = float(np.max(np.abs(np.array([r[5] for r in good]) / cfg.ALPHA_TEST - 1)))
+        out.append(Check("viscatm", "measurement", OK if spread < 0.1 else WARN,
+                         "alpha recovered from the applied stress at "
+                         + ", ".join(f"rho_atm {r[0]:g}: {r[5]:.5f}" for r in good)
+                         + f" against an input {cfg.ALPHA_TEST:g}; worst deviation "
+                           f"{100 * spread:.1f}%. Where the run integrates at all, the "
+                           f"ambient does not move the measurement",
+                         spread, "< 10%"))
+    elif good:
+        out.append(Check("viscatm", "measurement", INFO,
+                         f"only rho_atm {good[0][0]:g} both survived and yielded a "
+                         f"stress: alpha = {good[0][5]:.5f}. One point cannot separate "
+                         f"a threshold from a dependence", good[0][5]))
+    return out, data
+
+
 # --------------------------------------------------------------------------- 9. PPI
 
 

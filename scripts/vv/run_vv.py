@@ -103,6 +103,8 @@ def main(argv=None):
         collect(checks.sensitivity_checks, suite, model, gci)
     if any(c.startswith("visc_") for c in ran):
         collect(checks.viscosity_checks, suite, model)
+    if any(c.startswith("viscatm_") for c in ran):
+        collect(checks.viscatm_checks, suite, model, case_mod)
     if any(c.startswith("ring_") for c in ran):
         collect(checks.ring_checks, suite, model, case_mod)
     if any(c.startswith("ppi_") for c in ran):

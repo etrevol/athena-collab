@@ -251,6 +251,21 @@ def build(profile="quick"):
                       # ceiling: where it stops is the measurement.
                       timeout=420.0))
 
+    # -- the ambient under viscosity ---------------------------------------------------
+    # The rho_atm plateau above is measured at alpha = 0 and does not carry over: with
+    # viscosity the torus edge moves inward, and what sits ahead of it is the ambient.
+    # Two orbits is past where the baseline collapses (1.68), so the ladder separates
+    # "the run survives" from "the answer depends on it" - different questions that the
+    # inviscid scan cannot tell apart.
+    for rho_atm in (1e-3, 3e-4, 1e-4):
+        cases.append(Case(f"viscatm_{rho_atm:g}",
+                          _base(orbits=2.0, frames=2, alpha=ALPHA_TEST,
+                                **{"problem/rho_atm": rho_atm,
+                                   "problem/visc_rho_cut": 10 * rho_atm,
+                                   "output2/dt": f"{P:.10g}"}),
+                          ("viscatm",), est=_cost(NX, 2.0, viscous=True),
+                          timeout=420.0))
+
     # -- Papaloizou-Pringle instability -----------------------------------------------
     # Run length per mode, from the theoretical rate: every mode gets PPI_EFOLDS of
     # growth to fit, instead of a fixed number of orbits that suits only the fastest one.

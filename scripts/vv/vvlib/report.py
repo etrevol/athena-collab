@@ -364,7 +364,7 @@ def write_report(suite, model, checks, records, figures, elapsed, provenance):
     add("")
 
     order = ["health", "static", "mapping", "residual", "convergence", "temporal",
-             "invariance", "sensitivity", "viscosity", "ring", "ppi"]
+             "invariance", "sensitivity", "viscosity", "viscatm", "ring", "ppi"]
     titles = {
         "health": "0. Run health - did every case actually finish?",
         "static": "1. Static verification - the equilibrium's own algebra",
@@ -375,8 +375,9 @@ def write_report(suite, model, checks, records, figures, elapsed, provenance):
         "invariance": "6. Invariance - what must not change the answer",
         "sensitivity": "7. Parameters of numerical origin",
         "viscosity": "8. Viscosity: the alpha-law and what it transports",
-        "ring": "9. Lynden-Bell & Pringle ring: the viscous operator and nu_num",
-        "ppi": "10. Papaloizou-Pringle instability vs linear theory",
+        "viscatm": "9. The ambient under viscosity: threshold vs dependence",
+        "ring": "10. Lynden-Bell & Pringle ring: the viscous operator and nu_num",
+        "ppi": "11. Papaloizou-Pringle instability vs linear theory",
     }
     for g in groups:
         if g not in order:                      # a new group must not vanish silently
