@@ -86,6 +86,14 @@ turns out to have been unusable; do not rely on remembering.
   torus starts out of balance by the difference.
 - **A viscous torus spreads by `sqrt(nu t)`** and will leave a box sized for a static
   one. Check the box against the run length.
+- **The cubic mesh stamps only multiples of 4.** Measured on an unseeded 3D run:
+  `A_4 = 2.3e-4` while `A_1 = 1e-16`, i.e. round-off. Mode coupling is convolution in
+  `m`, so +/-4 combinations close on 4Z at every order and odd harmonics are unreachable
+  from the imprint. The m=1 seed floor is therefore round-off, not the 2e-5 imprint - the
+  seed can drop by orders, buying e-foldings of fit span for run time alone. Holds only
+  while the torus axis is a cube axis and the torus is centred; any tilt or offset
+  destroys the 4-fold selection. If `A_1`, `A_2`, `A_3` ever sit at the *same* value,
+  that is summation order breaking symmetry, not the mesh.
 - **An instability amplifies whatever asymmetry is already present**, including the
   grid's own. Seed the low harmonics coherently and check the seed sits above the grid
   imprint, or the measurement is of the mesh. **In 2D cylindrical there is no imprint at
