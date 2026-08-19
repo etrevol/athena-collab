@@ -194,6 +194,36 @@ def static_checks(model):
                      f"to {rel:.2e}: T_0 and mu set the unit of velocity, nothing else",
                      rel, "< 1e-12"))
 
+    # The p_rad/p_gas argument below is only admissible once the flow is optically
+    # thick: p_rad = aT^4/3 presupposes LTE, and in an optically thin flow radiation
+    # escapes instead of accumulating, so a hot gas can sit far below that value. Settle
+    # the optical depth first, then the ratio means something. (Raised by the athena-torus
+    # session, which caught this gap in the argument.)
+    import math as _math
+    kappa_es = 0.34                                        # cm^2/g, electron scattering
+    h_over_r = _math.sqrt((model.gamma - 1.0) * (0.5 - model.C_prime))
+    tau_es = kappa_es * model.rho_0 * h_over_r * model.L_0
+    out.append(Check(g, "optical_depth", OK if tau_es > 10.0 else WARN,
+                     f"tau_es = kappa rho_0 H = {tau_es:.1f} with H/r = {h_over_r:.3f}: "
+                     f"optically thick, so LTE holds and reading p as aT^4/3 is "
+                     f"admissible. Optically thin would need rho_0 <= "
+                     f"{1.0 / (kappa_es * h_over_r * model.L_0):.2e} g/cm^3, "
+                     f"{model.rho_0 / (1.0 / (kappa_es * h_over_r * model.L_0)):.0f}x "
+                     f"below this model - that is a different object, not a reading of "
+                     f"this one", tau_es, "> 10"))
+
+    # Self-gravity: not modelled, so say by how much it is negligible rather than leave
+    # the omission unexamined.
+    G, M_SUN = 6.6743e-8, 1.98841e33
+    omega = _math.sqrt(G * model.M_bh * M_SUN / (model.r_center * model.L_0) ** 3)
+    cs_mid = _math.sqrt(model.gamma * model.pr_mid) * model.cs0
+    sigma_mid = 2.0 * model.rho_0 * h_over_r * model.L_0
+    toomre = cs_mid * omega / (_math.pi * G * sigma_mid)
+    out.append(Check(g, "toomre_q", OK if toomre > 10.0 else WARN,
+                     f"Toomre Q = {toomre:.2e} at r_center: self-gravity is negligible "
+                     f"by five orders of magnitude, which is why the solver runs without "
+                     f"it and why no V&V case tests it", toomre, "> 10"))
+
     out.append(Check(g, "regime", INFO,
                      f"p_rad/p_gas = {model.p_rad_over_gas:.2e} at the ideal-gas "
                      f"T_mid = {model.T_mid:.3e} K; the consistent reading is "
