@@ -1056,6 +1056,30 @@ def ppi_checks(suite, model, n_eig=400):
                          rel, "< 15%"))
     data["ppi_measured"] = measured
 
+    # How much growth each fit actually saw. The linearity ceiling caps the window from
+    # above and the seed transient from below, so a fast mode at a fixed seed can be left
+    # with too little clean exponential in between - and it fails SILENTLY, by tightening
+    # the window rather than loosening it, which is why the ceiling alone is not enough of
+    # a criterion. The room available is ln(ceiling/seed) minus whatever the transient
+    # eats. Raised by the athena-torus session, which found its own fits contaminated the
+    # other way and had to withdraw a published precision.
+    spans = {cid: rec["fit"]["rate"] * (rec["window"][1] - rec["window"][0])
+             for cid, rec in measured.items() if np.isfinite(rec["fit"]["rate"])}
+    if spans:
+        worst_cid = min(spans, key=spans.get)
+        worst = spans[worst_cid]
+        out.append(Check("ppi", "fit_span", OK if worst >= 3.0 else
+                         (WARN if worst >= 2.0 else FAIL),
+                         "e-foldings inside the fit window: "
+                         + ", ".join(f"{c[4:] if c.startswith('ppi_') else c}: {v:.2f}"
+                                     for c, v in sorted(spans.items()))
+                         + f". The narrowest is {worst_cid} at {worst:.2f}. Below about "
+                           f"three the window is short enough that the seed transient can "
+                           f"still be inside it, and the agreement with theory stops being "
+                           f"evidence about the eigenmode. Buying more requires a smaller "
+                           f"seed and a longer run, not a higher ceiling",
+                         worst, ">= 3 e-foldings"))
+
     # Snapshots of the pattern itself, normalised by the azimuthal mean so the mode is
     # visible at all. Kept as fields rather than as a number because "is it really an
     # m = 2 spiral" is a question a plot answers and a growth rate does not. All three
