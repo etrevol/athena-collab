@@ -35,11 +35,19 @@ def measure(run_dir, problem_id):
     if w.sum() < 4:
         return None
     c = np.polyfit(o[w], np.log(A[1][w]), 1)[0]
+    # e-foldings inside the window: an exponential fit given less than a factor of e^2
+    # in amplitude is fitting noise, and the failure is invisible in the residual because
+    # a short window is also a straight one. The fix is a smaller seed and a longer run,
+    # never a wider window - widening readmits the nonlinear data the window excludes.
+    span = float(np.log(A[1][w][-1] / A[1][w][0]))
+    if span < 2.0:
+        sys.stderr.write(f"warning: {run_dir}: fit spans only {span:.2f} e-foldings "
+                         f"(want >= 3); the rate is worth about 10%, not the residual\n")
     om = pattern_speed(d)
     wp = (o > o[w][0]) & (o < o[w][-1])
     late = o > 0.7 * o[-1]
     return dict(sigma=float(c) / (2.0 * np.pi), omega_p=float(np.mean(om[wp])),
-                peak=float(A[1].max()), late=float(np.mean(A[1][late])))
+                peak=float(A[1].max()), late=float(np.mean(A[1][late])), span=span)
 
 
 def figure(points, out_path, xlabel="q", problem_id="sg_torus_m1"):

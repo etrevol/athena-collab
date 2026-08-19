@@ -51,6 +51,15 @@ minutes against hours. Parameter surveys are done in 2D and only the interesting
 are repeated in 3D. This is only valid once 2D and 3D have been checked against each
 other on the same physics — do that check before trusting any 2D survey.
 
+**Measure a growth-rate window in e-foldings, not in orbits.** An exponential fit given
+less than `e^2` in amplitude is fitting noise, and the failure is invisible in the
+residual because a short window is also a straight one. Every window in the q-scan spans
+under 2 e-foldings (0.96 at q=0.35), so those rates are worth about 10%, not the 0.004
+residual of the line. The cause is the seed: 2e-3 against a saturation near 0.3 leaves
+only ~5 e-foldings before the transient and the nonlinear turnover are excluded. The fix
+is a smaller seed and a longer run - never a wider window, which readmits the nonlinear
+data the window exists to exclude. `scan_figure.py` warns below 2.
+
 **Frequencies converge, amplitudes do not.** The constant-`l` run repeated at 128^3
 against 96^3 moves the pattern speed by 1.8% and the harmonic ratio `k` by 1.3%, but the
 growth rate by 8% and the peak amplitude by 18%. Quote amplitudes to two significant
