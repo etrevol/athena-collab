@@ -5,7 +5,14 @@ solver:
   type: athena++
   template: athinput.scalar_diff.template
   plugin_args:
-    athena_source: "/home/etrevol/athena-collab"
+    # ${ATHENA_ROOT}, never a fixed checkout. athena_source puts the adapter into its
+    # on-the-fly build mode: it runs configure.py and make IN THIS TREE. Pointed at the
+    # main checkout it reconfigured it to scalar_diff and rebuilt bin/athena, while
+    # .build_state went on naming acc_disk_visc with a matching source hash -- so the
+    # next ./build.sh would have seen nothing to do and handed over a binary solving a
+    # different problem. That is the exact trap CLAUDE.md documents, and this line
+    # walked into it.
+    athena_source: "${ATHENA_ROOT}"
     configure_args: ["--prob=scalar_diff", "--coord=cylindrical", "--nscalars=1"]
     use_wsl: true
     wsl_distro: Ubuntu

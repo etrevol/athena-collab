@@ -5,7 +5,7 @@ solver:
   type: athena++
   template: athinput.sod.template
   plugin_args:
-    athena_source: "/home/user/athena-collab"
+    athena_source: "${ATHENA_ROOT}"   # expanded by the adapter; never hardcode a checkout
     configure_args: ["--prob=shock_tube"]
     use_wsl: true
     wsl_distro: Ubuntu
