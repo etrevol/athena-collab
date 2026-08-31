@@ -69,6 +69,11 @@ mms:
   domain:
     x: [1.0, 3.0]
     y: [0.0, 6.283185307179586]
+    # t is declared although this solution is steady. vvkit derives the emitted C++
+    # signature from the domain, and the problem generator calls every source with
+    # (x, y, t); declaring it here keeps one signature across all three MMS studies
+    # instead of making the generator branch on which study built its header.
+    t: [0.0, 1.0]
 
 study:
   type: spatial

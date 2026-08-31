@@ -1,0 +1,90 @@
+# M7 -- order of accuracy in TIME.
+#
+# Every other study here refines the mesh. None of them can say anything about the time
+# integrator, and the reason is structural rather than an oversight: both exact solutions
+# this project owns are stationary. The torus is an equilibrium and the M5 manufactured
+# solution is steady, so refining dt on either drives the answer to the fixed spatial
+# error and reports an order near zero. Measuring temporal order needs a reference that
+# actually moves.
+#
+# So the manufactured solution below is the M5 one with a time factor multiplied in:
+#
+#   rho(x,y,t)   = 2.0 + 0.5*sin(x)*cos(y)*cos(t)
+#   press(x,y,t) = 3.0 + 0.4*cos(x)*cos(y)*cos(t)
+#   vel1(x,y,t)  = 0.2*cos(x)*sin(y)*sin(t)
+#   vel2(x,y,t)  = 1.0 + 0.3*sin(x)*sin(y)*cos(t)
+#
+# Positivity holds by construction: rho >= 1.5 and press >= 2.6 everywhere, which matters
+# because the solver floors and a floored cell is not a solution of anything.
+#
+# The refinement parameter is cfl_number, not the mesh. Halving it halves dt and doubles
+# the cycle count at a fixed grid, so the spatial error is held constant while the
+# temporal one is driven down. Athena++'s vl2 integrator is second order, so is xorder=2
+# reconstruction, and the expectation is 2.
+#
+# KNOWN RISK, stated before the run rather than after: at 256^2 the spatial error may
+# already dominate, in which case the series flattens and the study measures the spatial
+# floor instead of the time integrator. That shows up as an order collapsing toward zero
+# with a plateau diagnosis, not as a wrong number, so it is a loud failure. The remedy if
+# it happens is a finer mesh or a faster time factor, and the diagnosis has to come first.
+#
+# t is declared in the domain and its upper bound MUST equal tlim: vvkit evaluates the
+# reference at that bound, so a mismatch silently compares against the wrong instant.
+version: 1
+name: m7_temporal_order
+
+solver:
+  type: athena++
+  template: athinput.temporal.template
+  timeout_s: 7200.0
+  plugin_args:
+    executable: ${ATHENA_ROOT}/bin/athena_mms
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out1"
+    fields:
+      rho: rho
+      press: press
+      vel1: vel1
+      vel2: vel2
+
+mms:
+  # S = dU/dt + div F. The M5 operator is the flux divergence alone, which is the whole
+  # of it only for a steady solution. Here the conserved variables move, so each equation
+  # carries the time derivative of its own conserved quantity: rho, rho*v_r, rho*v_phi and
+  # E = p/(g-1) + rho*v^2/2, in Athena++'s IDN/IM1/IM2/IEN order. The spatial halves are
+  # taken verbatim from vvcase_mms_euler.yaml rather than retyped.
+  operator:
+    dens: "Derivative(rho(x,y,t), t) + (1/x)*Derivative(x*rho(x,y,t)*vel1(x,y,t), x) + (1/x)*Derivative(rho(x,y,t)*vel2(x,y,t), y)"
+    mom1: "Derivative(rho(x,y,t)*vel1(x,y,t), t) + (1/x)*Derivative(x*(rho(x,y,t)*vel1(x,y,t)**2 + press(x,y,t)), x) + (1/x)*Derivative(rho(x,y,t)*vel1(x,y,t)*vel2(x,y,t), y) - (rho(x,y,t)*vel2(x,y,t)**2 + press(x,y,t))/x"
+    mom2: "Derivative(rho(x,y,t)*vel2(x,y,t), t) + (1/x**2)*Derivative(x**2*rho(x,y,t)*vel1(x,y,t)*vel2(x,y,t), x) + (1/x)*Derivative(rho(x,y,t)*vel2(x,y,t)**2 + press(x,y,t), y)"
+    etot: "Derivative(press(x,y,t)/(g - 1) + rho(x,y,t)*(vel1(x,y,t)**2 + vel2(x,y,t)**2)/2, t) + (1/x)*Derivative(x*(press(x,y,t)/(g - 1) + rho(x,y,t)*(vel1(x,y,t)**2 + vel2(x,y,t)**2)/2 + press(x,y,t))*vel1(x,y,t), x) + (1/x)*Derivative((press(x,y,t)/(g - 1) + rho(x,y,t)*(vel1(x,y,t)**2 + vel2(x,y,t)**2)/2 + press(x,y,t))*vel2(x,y,t), y)"
+
+  solution:
+    rho:   "2.0 + 0.5*sin(x)*cos(y)*cos(t)"
+    press: "3.0 + 0.4*cos(x)*cos(y)*cos(t)"
+    vel1:  "0.2*cos(x)*sin(y)*sin(t)"
+    vel2:  "1.0 + 0.3*sin(x)*sin(y)*cos(t)"
+  symbols:
+    g: 1.6666666666666667
+  domain:
+    x: [1.0, 3.0]
+    y: [0.0, 6.283185307179586]
+    t: [0.0, 1.0]
+
+study:
+  type: temporal
+  coordinate_system: cylindrical
+  refinement:
+    parameter: cfl_number
+    values: [0.4, 0.2, 0.1, 0.05]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2]
+  exclude_boundary_cells: 0
+  expected_order: 2.0
+  order_tolerance: 0.5
+
+report:
+  formats: [html, json]
+  output_dir: reports/
