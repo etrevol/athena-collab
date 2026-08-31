@@ -1,0 +1,50 @@
+# The whole verification campaign for acc_disk_visc_vv, in one place.
+#
+# FINDINGS.md is the argument; this is the evidence, and it is generated rather than
+# transcribed. `vv campaign report campaign.yaml` rebuilds the index from the studies'
+# existing JSON without running a solver; `vv campaign run` re-runs them all first.
+#
+# m7_temporal and the a1b discriminator are listed but have not been run yet, so they
+# appear in the index as missing rather than being quietly left out.
+version: 1
+name: acc_disk_visc_vv
+description: >-
+  Verification of the 2D Papaloizou-Pringle torus with alpha viscosity against exact
+  analytic solutions, plus manufactured solutions for the operators the torus cannot
+  exercise and a spreading ring for the time-dependent viscous transport.
+
+studies:
+  - path: m1_residual/vvcase_fsum.yaml
+    label: M1 - discrete force residual
+  - path: m2_equilibrium/vvcase_rho.yaml
+    label: M2 - equilibrium, density
+  - path: m2_equilibrium/vvcase_rho_press.yaml
+    label: M2b - equilibrium, density and pressure
+  - path: m2_equilibrium/vvcase_rho_azimuthal.yaml
+    label: M2c - equilibrium, azimuthal refinement
+  - path: m3_nu/vvcase_nu.yaml
+    label: M3 - applied viscosity against the alpha law
+  - path: m4_stress/vvcase_trphi.yaml
+    label: M4 - viscous shear stress
+  - path: m5_mms/vvcase_mms_euler.yaml
+    label: M5 - manufactured solution, Euler operators
+  - path: m5_mms/vvcase_mms_viscous.yaml
+    label: M5b - manufactured solution, viscous operator
+  - path: m6_budget/vvcase_budget.yaml
+    label: M6 - mass budget, 10 samples per orbit
+  - path: m6_budget/vvcase_budget_dense.yaml
+    label: M6b - mass budget, 100 samples per orbit
+  - path: m7_temporal/vvcase_temporal.yaml
+    label: M7 - temporal order (not yet run)
+  - path: a1_ring/vvcase_ring.yaml
+    label: A1 - Lynden-Bell & Pringle spreading ring
+  - path: a1_ring/vvcase_ring_thin.yaml
+    label: A1-thin - the disc-thickness hypothesis, tested and rejected
+  - path: a1_ring/vvcase_ring_short.yaml
+    label: A1b - inner-boundary discriminator (not yet run)
+  - path: wiki_example/vvcase.yaml
+    label: Cross-check - the tool's own scalar diffusion demo
+
+report:
+  output_dir: reports/
+  profile: working
