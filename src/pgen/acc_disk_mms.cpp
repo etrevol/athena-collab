@@ -55,10 +55,18 @@ Real gamma_gas;
 // the source term was derived from those expressions, and the study measures against
 // them. Any divergence here silently turns the study into a comparison between two
 // different problems.
-Real MMSDensity(Real x, Real y, Real t)  { return 2.0 + 0.5 * std::sin(x) * std::cos(y) * std::cos(t); }
-Real MMSPressure(Real x, Real y, Real t) { return 3.0 + 0.4 * std::cos(x) * std::cos(y) * std::cos(t); }
-Real MMSVel1(Real x, Real y, Real t)     { return 0.2 * std::cos(x) * std::sin(y) * std::sin(t); }
-Real MMSVel2(Real x, Real y, Real t)     { return 1.0 + 0.3 * std::sin(x) * std::sin(y) * std::cos(t); }
+Real MMSDensity(Real x, Real y, Real t) {
+  return 2.0 + 0.5 * std::sin(x) * std::cos(y) * std::cos(t);
+}
+Real MMSPressure(Real x, Real y, Real t) {
+  return 3.0 + 0.4 * std::cos(x) * std::cos(y) * std::cos(t);
+}
+Real MMSVel1(Real x, Real y, Real t) {
+  return 0.2 * std::cos(x) * std::sin(y) * std::sin(t);
+}
+Real MMSVel2(Real x, Real y, Real t) {
+  return 1.0 + 0.3 * std::sin(x) * std::sin(y) * std::cos(t);
+}
 
 void MMSPrimitive(Real x, Real y, Real t, Real *rho, Real *press, Real *v1, Real *v2) {
   *rho   = MMSDensity(x, y, t);

@@ -37,7 +37,7 @@ nx2    = 256           # number of zones in X2-direction
 x2min  = 0.0           # minimum value of X2
 x2max  = 6.28318530718 # maximum value of X2
 ix2_bc = periodic      # the manufactured solution is 2pi-periodic in phi
-ox2_bc = periodic      # inner-X2 boundary condition flag
+ox2_bc = periodic      # outer-X2 boundary condition flag
 
 nx3    = 1             # number of zones in X3-direction
 x3min  = -0.5          # minimum value of X3
