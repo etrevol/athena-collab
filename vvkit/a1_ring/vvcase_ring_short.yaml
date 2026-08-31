@@ -1,0 +1,73 @@
+# A1b -- the same Lynden-Bell & Pringle ring, stopped before it reaches the boundary.
+#
+# A1 measured an error floor of ~2.3e-4 that refinement does not remove. This run is the
+# discriminator. It changes exactly one thing: tlim goes from 68.3 to 20.0, so tau goes
+# from 0.100 to 0.042.
+#
+# Why that separates the hypotheses, in numbers rather than words. Writing sigma for the
+# analytic profile normalised to its peak:
+#
+#            tau     sigma(x=0.2)/peak   sigma(x=2.0)/peak   background/peak
+#   A1     0.100          5.67e-3             2.68e-5            1.1e-6
+#   A1b    0.042          8.13e-7             2.71e-11           7.3e-7
+#
+# At tau = 0.100 the ring still has five thousand times the background sitting on the
+# INNER boundary, and that amplitude is the same order as the floor being explained. At
+# tau = 0.042 it is below the background, and the outer boundary was never a candidate
+# at either time.
+#
+# Reading the result:
+#   - floor collapses  -> the inner boundary was the cause; A1's order is not the
+#                         scheme's order, and FINDINGS section 5 can say which boundary
+#   - floor survives    -> the boundary is exonerated and the cause is elsewhere
+#                         (the reference, the reader, or the viscous operator itself)
+#
+# Everything else -- domain, resolution ladder, nu, tau0, the exact solution's form --
+# is identical to vvcase_ring.yaml on purpose. One variable at a time.
+version: 1
+name: a1b_ring_sigma_short
+
+solver:
+  type: athena++
+  template: athinput.ring_short.template
+  timeout_s: 7200.0
+  plugin_args:
+    executable: ${ATHENA_ROOT}/bin/athena_visc_ring
+    use_wsl: true
+    wsl_distro: Ubuntu
+    output_stream: "out1"
+    fields:
+      rho: rho
+
+mms:
+  operator: "None"
+  # Sigma normalised to sigma_peak = 1 at (x = 1, tau = tau0), plus the background the
+  # generator adds. tau0 = 0.018, nu = 1e-4, R0 = 1.
+  solution: >-
+    1.0e-6 +
+    ( besseli(1/4, 2*x/(0.018 + 0.0012*t)) * exp(-(1 + x**2)/(0.018 + 0.0012*t))
+      / ((0.018 + 0.0012*t) * x**(1/4)) )
+    /
+    ( besseli(1/4, 2/0.018) * exp(-2/0.018) / 0.018 )
+  symbols: {}
+  domain:
+    x: [0.2, 2.0]
+    y: [0.0, 6.28318530718]
+    t: [0.0, 20.0]
+
+study:
+  type: spatial
+  coordinate_system: cylindrical
+  refinement:
+    parameter: nx1
+    values: [64, 128, 256]
+  reference: cell_average
+  quadrature_order: 5
+  norms: [L1, L2, Linf]
+  exclude_boundary_cells: 2
+  expected_order: 2.0
+  order_tolerance: 0.5
+
+report:
+  formats: [html, json]
+  output_dir: reports/
