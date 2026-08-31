@@ -51,21 +51,34 @@
 namespace {
 Real gamma_gas;
 
+// Angular frequency of the manufactured solution, from <problem>/omega. It is the ONE
+// knob separating the spatial studies from the temporal one, and it must equal the `w`
+// in mms.symbols that the source term was derived with. At omega = 0 every time factor
+// below is identically 1 and the solution is exactly the steady one the M5 studies use,
+// so the two families are the same family rather than two that have to be kept in step
+// by hand. A mismatch is not silent: the source term stops solving the solution the
+// boundaries hold, and the observed order collapses to zero.
+Real omega;
+
 // The manufactured solution. These MUST match mms.solution in the vvcase file exactly:
 // the source term was derived from those expressions, and the study measures against
 // them. Any divergence here silently turns the study into a comparison between two
 // different problems.
+//
+// The time factor is cos(omega t) on all four, deliberately -- not sin on the radial
+// velocity. sin would vanish at omega = 0 and take v_r with it, and the steady limit
+// would no longer be the M5 solution but a different problem that merely resembles it.
 Real MMSDensity(Real x, Real y, Real t) {
-  return 2.0 + 0.5 * std::sin(x) * std::cos(y) * std::cos(t);
+  return 2.0 + 0.5 * std::sin(x) * std::cos(y) * std::cos(omega * t);
 }
 Real MMSPressure(Real x, Real y, Real t) {
-  return 3.0 + 0.4 * std::cos(x) * std::cos(y) * std::cos(t);
+  return 3.0 + 0.4 * std::cos(x) * std::cos(y) * std::cos(omega * t);
 }
 Real MMSVel1(Real x, Real y, Real t) {
-  return 0.2 * std::cos(x) * std::sin(y) * std::sin(t);
+  return 0.2 * std::cos(x) * std::sin(y) * std::cos(omega * t);
 }
 Real MMSVel2(Real x, Real y, Real t) {
-  return 1.0 + 0.3 * std::sin(x) * std::sin(y) * std::cos(t);
+  return 1.0 + 0.3 * std::sin(x) * std::sin(y) * std::cos(omega * t);
 }
 
 void MMSPrimitive(Real x, Real y, Real t, Real *rho, Real *press, Real *v1, Real *v2) {
@@ -106,6 +119,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
         << "hydro/gamma to " << gamma_expected << "." << std::endl;
     ATHENA_ERROR(msg);
   }
+
+  omega = pin->GetOrAddReal("problem", "omega", 0.0);
 
   EnrollUserExplicitSourceFunction(MMSSourceTerm);
 

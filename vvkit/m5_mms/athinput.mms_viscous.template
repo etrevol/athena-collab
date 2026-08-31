@@ -60,3 +60,8 @@ pfloor = 1e-10         # pressure floor
 
 <problem>
 nu_iso = 0.05          # constant kinematic viscosity; must match mms.symbols.nu0
+
+<problem>
+omega  = 0.0           # angular frequency of the manufactured solution. Must equal
+                      # mms.symbols.w, which the source term was derived with; at 0
+                      # the whole family collapses onto the steady M5 solution.

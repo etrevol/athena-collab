@@ -9,10 +9,13 @@
 #
 # So the manufactured solution below is the M5 one with a time factor multiplied in:
 #
-#   rho(x,y,t)   = 2.0 + 0.5*sin(x)*cos(y)*cos(t)
-#   press(x,y,t) = 3.0 + 0.4*cos(x)*cos(y)*cos(t)
-#   vel1(x,y,t)  = 0.2*cos(x)*sin(y)*sin(t)
-#   vel2(x,y,t)  = 1.0 + 0.3*sin(x)*sin(y)*cos(t)
+#   rho(x,y,t)   = 2.0 + 0.5*sin(x)*cos(y)*cos(w t)
+#   press(x,y,t) = 3.0 + 0.4*cos(x)*cos(y)*cos(w t)
+#   vel1(x,y,t)  = 0.2*cos(x)*sin(y)*cos(w t)
+#   vel2(x,y,t)  = 1.0 + 0.3*sin(x)*sin(y)*cos(w t)
+#
+# cos on all four, not sin on vel1: sin would vanish at w = 0 and take the radial
+# velocity with it, so the steady limit would stop being the M5 problem.
 #
 # Positivity holds by construction: rho >= 1.5 and press >= 2.6 everywhere, which matters
 # because the solver floors and a floored cell is not a solution of anything.
@@ -61,12 +64,16 @@ mms:
     etot: "Derivative(press(x,y,t)/(g - 1) + rho(x,y,t)*(vel1(x,y,t)**2 + vel2(x,y,t)**2)/2, t) + (1/x)*Derivative(x*(press(x,y,t)/(g - 1) + rho(x,y,t)*(vel1(x,y,t)**2 + vel2(x,y,t)**2)/2 + press(x,y,t))*vel1(x,y,t), x) + (1/x)*Derivative((press(x,y,t)/(g - 1) + rho(x,y,t)*(vel1(x,y,t)**2 + vel2(x,y,t)**2)/2 + press(x,y,t))*vel2(x,y,t), y)"
 
   solution:
-    rho:   "2.0 + 0.5*sin(x)*cos(y)*cos(t)"
-    press: "3.0 + 0.4*cos(x)*cos(y)*cos(t)"
-    vel1:  "0.2*cos(x)*sin(y)*sin(t)"
-    vel2:  "1.0 + 0.3*sin(x)*sin(y)*cos(t)"
+    rho:   "2.0 + 0.5*sin(x)*cos(y)*cos(w*t)"
+    press: "3.0 + 0.4*cos(x)*cos(y)*cos(w*t)"
+    vel1:  "0.2*cos(x)*sin(y)*cos(w*t)"
+    vel2:  "1.0 + 0.3*sin(x)*sin(y)*cos(w*t)"
   symbols:
     g: 1.6666666666666667
+    # Must equal <problem>/omega in the athinput. At w = 0 this whole family
+    # collapses onto the steady M5 solution, which is the point: one generator
+    # serves both, and the steady limit is a check rather than a coincidence.
+    w: 1.0
   domain:
     x: [1.0, 3.0]
     y: [0.0, 6.283185307179586]
