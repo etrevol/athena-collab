@@ -15,11 +15,17 @@ venv over interop. That is also the mode the Athena++ plugin documents: `use_wsl
 makes the adapter shell back into WSL to run the solver. The `vv` wrapper hides this.
 
 ```bash
-cd m4_stress && ../vv run --config-path vvcase_trphi.yaml --workdir-base workdir
+cd m4_stress && ../vv run vvcase_trphi.yaml --jobs 4
 ```
 
 Reports land in `<study>/reports/` as HTML, JSON and a PNG. `vv run` exits non-zero when
 a study fails, so it can gate CI.
+
+`--jobs N` runs N refinement levels at once; the ladder is the natural place for it,
+since the cases are independent and the finest one decides the wall clock. `--profile`
+picks who the HTML is written for (`working`, the default, `thesis`, `oss`, `ci`), and
+`vv report <study>.json --profile thesis` re-renders an existing result under a
+different one without touching the solver.
 
 Binaries are built into **this worktree** (`bin/`), never into the main checkout — the
 adapter's on-the-fly build mode runs `make clean` and would desynchronise `.build_state`
@@ -31,18 +37,34 @@ there:
 
 ## Studies
 
-| dir | measures | reference | runtime |
+| dir | measures | reference | ladder |
 |---|---|---|---|
-| `m1_residual/` | `f_sum`, the discrete force residual | exactly 0 | 15 s |
-| `m2_equilibrium/` | `rho` (and `press`) after one orbit | analytic torus profile | 10 min to 512² |
-| `m3_nu/` | `nu_applied` | the α-law | 12 s |
-| `m4_stress/` | `T_rphi` | analytic shear stress | 17 s |
-| `a1_ring/` | *(not run)* Lynden-Bell & Pringle ring | closed-form Σ(x, τ) | — |
-| `m5_mms/` | *(not run)* 2D MMS on the production operators | manufactured | — |
-| `m6_budget/` | *(not run)* mass budget | `mdot_in − mdot_out` | — |
+| `m1_residual/` | `f_sum`, the discrete force residual | exactly 0 | 64–512 |
+| `m2_equilibrium/` | `rho`, `press` after one orbit | analytic torus profile | 64–512 |
+| `m3_nu/` | `nu_applied` | the α-law | 64–512 |
+| `m4_stress/` | `T_rphi` | analytic shear stress | 64–512 |
+| `m5_mms/` | 2D MMS, Euler and viscous operators | manufactured | 32–256 |
+| `m6_budget/` | mass budget, sparse and dense sampling | `mdot_in − mdot_out` | 64–256 |
+| `a1_ring/` | Lynden-Bell & Pringle spreading ring | closed-form Σ(x, τ) | 64–256 |
+
+All of them have been run; the results are in [FINDINGS.md](FINDINGS.md).
+`a1_ring/vvcase_ring_short.yaml` is the one exception — it is the discriminator for A1's
+error floor and has not been run yet.
 
 `m1`, `m3` and `m4` run the solver for two cycles only, so they cost almost nothing in CPU
-and are limited by `.tab` parsing (59 MB per dump at 512²).
+and are limited by `.tab` parsing (59 MB per dump at 512²). Do not trust remembered
+runtimes: every report now carries a per-case cost table built from the solver's own
+cycle counts and throughput, which is the only figure worth quoting. Measured for `m4`,
+one core: 0.24 s at 64², 2.8 s at 512², about 2.8e5 zone-cycles/s.
+
+## Reproducibility
+
+Every report records what produced it: the binary's SHA-256, the checkout and revision
+it was built from, the `.build_state` beside it, the input deck as the solver actually
+received it, and the per-case cost. This matters here more than in most projects,
+because the studies point at `${ATHENA_ROOT}/bin/athena_*` and those binaries are built
+by hand from a tree that carries three problem generators — nothing else in the
+directory says which one a given number came from.
 
 ## Notes on the configurations
 
@@ -60,10 +82,11 @@ and are limited by `.tab` parsing (59 MB per dump at 512²).
 ## Layout
 
 ```
-vv                     CLI wrapper
-tools/                 build_binaries.sh
-common/                shared athinput fragments
+vv                     CLI wrapper; derives and exports ATHENA_ROOT from its own location
+tools/                 build_binaries.sh -- builds all three pgens into this worktree's bin/
+toolchain/             the vvcase template `vv init` starts from
 notes/                 raw first-touch observations, kept as evidence
+wiki_example/          the tool's own shipped demo, re-measured here as a cross-check
 <study>/               vvcase_*.yaml + athinput.*.template + reports/ + workdir/
 ```
 

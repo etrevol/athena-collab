@@ -20,8 +20,10 @@ solver:
     wsl_distro: Ubuntu
     output_stream: "out2"
     # uov columns are f_grav f_centr f_press f_sum nu_applied T_rphi resid_r.
-    # Only the mapped ones are returned, and the FIRST one is what the error is
-    # computed against (cli/main.py:186), so this map must contain exactly one entry.
+    # Only the mapped ones are returned. Every mapped field is measured separately now,
+    # so this map may hold as many as the study wants; it holds one because f_sum is the
+    # only column with a known exact value, and the other six would be measured against
+    # the same zero without meaning it.
     fields:
       f_sum: f_sum
 
