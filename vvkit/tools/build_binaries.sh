@@ -21,7 +21,27 @@ build() {  # build <prob> <output-binary-name>
 
 build acc_disk_visc_vv athena_acc_disk
 build visc_ring        athena_visc_ring
-build acc_disk_mms     athena_mms
+
+# The MMS studies share ONE generated header, src/pgen/mms_source_generated.hpp, so a
+# single athena_mms binary carries whichever study's source term happened to be
+# generated last. Nothing checks that at run time: pointing M7 at a binary built from
+# M5's steady source term produces a solver that quietly converges to the wrong thing.
+# It had already happened -- the binary was three weeks older than the header.
+#
+# So each MMS study gets its own header and its own binary, generated here.
+build_mms() {  # build_mms <study-dir> <vvcase> <output-binary-name>
+    echo "=== $1/$2 -> bin/$3 ==="
+    ( cd "vvkit/$1" && "$repo/vvkit/vv" mms "$2" --language cpp \
+        --output "$repo/src/pgen/mms_source_generated.hpp" < /dev/null )
+    build acc_disk_mms "$3"
+}
+
+build_mms m5_mms     vvcase_mms_euler.yaml   athena_mms_euler
+build_mms m5_mms     vvcase_mms_viscous.yaml athena_mms_viscous
+build_mms m7_temporal vvcase_temporal.yaml   athena_mms_temporal
+
+# The committed header is left as whichever study was generated last above; the study
+# configs no longer name a plain athena_mms, so nothing depends on which one that is.
 
 echo "ALL BUILDS OK"
 ls -la bin/

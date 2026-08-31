@@ -38,7 +38,7 @@ solver:
   template: athinput.temporal.template
   timeout_s: 7200.0
   plugin_args:
-    executable: ${ATHENA_ROOT}/bin/athena_mms
+    executable: ${ATHENA_ROOT}/bin/athena_mms_temporal
     use_wsl: true
     wsl_distro: Ubuntu
     output_stream: "out1"
