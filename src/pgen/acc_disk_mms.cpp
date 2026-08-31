@@ -55,16 +55,16 @@ Real gamma_gas;
 // the source term was derived from those expressions, and the study measures against
 // them. Any divergence here silently turns the study into a comparison between two
 // different problems.
-Real MMSDensity(Real x, Real y)  { return 2.0 + 0.5 * std::sin(x) * std::cos(y); }
-Real MMSPressure(Real x, Real y) { return 3.0 + 0.4 * std::cos(x) * std::cos(y); }
-Real MMSVel1(Real x, Real y)     { return 0.2 * std::cos(x) * std::sin(y); }
-Real MMSVel2(Real x, Real y)     { return 1.0 + 0.3 * std::sin(x) * std::sin(y); }
+Real MMSDensity(Real x, Real y, Real t)  { return 2.0 + 0.5 * std::sin(x) * std::cos(y) * std::cos(t); }
+Real MMSPressure(Real x, Real y, Real t) { return 3.0 + 0.4 * std::cos(x) * std::cos(y) * std::cos(t); }
+Real MMSVel1(Real x, Real y, Real t)     { return 0.2 * std::cos(x) * std::sin(y) * std::sin(t); }
+Real MMSVel2(Real x, Real y, Real t)     { return 1.0 + 0.3 * std::sin(x) * std::sin(y) * std::cos(t); }
 
-void MMSPrimitive(Real x, Real y, Real *rho, Real *press, Real *v1, Real *v2) {
-  *rho   = MMSDensity(x, y);
-  *press = MMSPressure(x, y);
-  *v1    = MMSVel1(x, y);
-  *v2    = MMSVel2(x, y);
+void MMSPrimitive(Real x, Real y, Real t, Real *rho, Real *press, Real *v1, Real *v2) {
+  *rho   = MMSDensity(x, y, t);
+  *press = MMSPressure(x, y, t);
+  *v1    = MMSVel1(x, y, t);
+  *v2    = MMSVel2(x, y, t);
 }
 }  // namespace
 
@@ -118,7 +118,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       for (int i=is; i<=ie; ++i) {
         Real x = pcoord->x1v(i);
         Real rho, press, v1, v2;
-        MMSPrimitive(x, y, &rho, &press, &v1, &v2);
+        MMSPrimitive(x, y, 0.0, &rho, &press, &v1, &v2);
 
         phydro->w(IDN,k,j,i) = rho;
         phydro->w(IVX,k,j,i) = v1;
@@ -155,10 +155,10 @@ void MMSSourceTerm(MeshBlock *pmb, const Real time, const Real dt,
       Real y = pmb->pcoord->x2v(j);
       for (int i=pmb->is; i<=pmb->ie; ++i) {
         Real x = pmb->pcoord->x1v(i);
-        cons(IDN,k,j,i) += dt * mms_source_dens(x, y);
-        cons(IM1,k,j,i) += dt * mms_source_mom1(x, y);
-        cons(IM2,k,j,i) += dt * mms_source_mom2(x, y);
-        cons(IEN,k,j,i) += dt * mms_source_etot(x, y);
+        cons(IDN,k,j,i) += dt * mms_source_dens(x, y, time);
+        cons(IM1,k,j,i) += dt * mms_source_mom1(x, y, time);
+        cons(IM2,k,j,i) += dt * mms_source_mom2(x, y, time);
+        cons(IEN,k,j,i) += dt * mms_source_etot(x, y, time);
       }
     }
   }
@@ -168,7 +168,7 @@ void MMSSourceTerm(MeshBlock *pmb, const Real time, const Real dt,
 //----------------------------------------------------------------------------------------
 //! \brief Ghost zones held at the exact solution.
 namespace {
-void FillGhostFromExact(Coordinates *pco, AthenaArray<Real> &prim,
+void FillGhostFromExact(Coordinates *pco, AthenaArray<Real> &prim, Real time,
                         int i_first, int i_last, int jl, int ju, int kl, int ku) {
   for (int k=kl; k<=ku; ++k) {
     for (int j=jl; j<=ju; ++j) {
@@ -176,7 +176,7 @@ void FillGhostFromExact(Coordinates *pco, AthenaArray<Real> &prim,
       for (int i=i_first; i<=i_last; ++i) {
         Real x = pco->x1v(i);
         Real rho, press, v1, v2;
-        MMSPrimitive(x, y, &rho, &press, &v1, &v2);
+        MMSPrimitive(x, y, time, &rho, &press, &v1, &v2);
         prim(IDN,k,j,i) = rho;
         prim(IVX,k,j,i) = v1;
         prim(IVY,k,j,i) = v2;
@@ -191,13 +191,13 @@ void FillGhostFromExact(Coordinates *pco, AthenaArray<Real> &prim,
 void MMSInnerX1(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                 FaceField &b, Real time, Real dt,
                 int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
-  FillGhostFromExact(pco, prim, il-ngh, il-1, jl, ju, kl, ku);
+  FillGhostFromExact(pco, prim, time, il-ngh, il-1, jl, ju, kl, ku);
   return;
 }
 
 void MMSOuterX1(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                 FaceField &b, Real time, Real dt,
                 int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
-  FillGhostFromExact(pco, prim, iu+1, iu+ngh, jl, ju, kl, ku);
+  FillGhostFromExact(pco, prim, time, iu+1, iu+ngh, jl, ju, kl, ku);
   return;
 }
