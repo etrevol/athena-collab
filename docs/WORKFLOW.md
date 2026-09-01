@@ -41,7 +41,8 @@ being used to plan run sets, so an SG on/off pair costs 1.6x a single run, not 1
 ## Rules that came from being wrong
 
 **Measure before scaling.** Every performance choice here was made from a measurement,
-not from expectation. Multigrid was 90% of the runtime, and the fastest-looking solver
+not from expectation — and re-measured when it drives a decision: the Multigrid cost above
+was recorded here as 90% and is 36%. The fastest-looking solver
 setting was also the least accurate — the settings and their measured errors are recorded
 in the generator.
 
