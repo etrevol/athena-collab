@@ -30,8 +30,13 @@ analysis, the figures and the animation, then regenerates `README.md`. Nothing n
 be invoked by hand afterwards. Post-processing failures are reported but never abort the
 queue.
 
-Sequential on purpose: Multigrid dominates the cost and the machine is memory bound, so
-two concurrent runs finish later than two consecutive ones.
+Sequential on purpose: the machine is memory bound, so two concurrent runs finish later
+than two consecutive ones.
+
+Measured cost of self-gravity, 96^3, 100 orbits: 3.9 h with Multigrid against 2.5 h
+without, i.e. 2.44e5 zone-cycles/s against 3.84e5. Multigrid is ~36% of the runtime, not
+the 90% recorded here earlier — that figure was from a different configuration and was
+being used to plan run sets, so an SG on/off pair costs 1.6x a single run, not 1.1x.
 
 ## Rules that came from being wrong
 
