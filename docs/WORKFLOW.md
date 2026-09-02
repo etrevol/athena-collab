@@ -136,6 +136,14 @@ turns out to have been unusable; do not rely on remembering.
   seed type move the growth rate by 11% and the onset of the exponential phase by 4.5
   orbits. Fit the rate strictly before the first saturation: a saturated mode oscillates
   back down through the fitting band and flattens the slope.
+- **The initial condition must contain the gas's own gravity once the gas is heavy.**
+  The analytic equilibrium balances the torus against the central mass alone, which is
+  wrong by `M_tor/M_c`. Measured at `mu = 0.30`: internal energy swings +106% over the
+  first ten orbits against +55% at `mu = 0.10`, the virial takes ~30 orbits to settle,
+  and the peak amplitude at orbit 15 sits inside the transient. Above `mu ~ 0.2` set
+  `scf_iter > 0` and the pgen iterates the equilibrium against its own potential before
+  the first step; the cost is seconds. The generator carries the flag and the pgen prints
+  what the iteration changed.
 - **A collapsed timestep freezes model time while cycles keep running.** Watch model
   time, not cycle count, and not the last logged `dt`.
 
