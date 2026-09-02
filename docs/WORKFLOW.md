@@ -38,6 +38,29 @@ without, i.e. 2.44e5 zone-cycles/s against 3.84e5. Multigrid is ~36% of the runt
 the 90% recorded here earlier — that figure was from a different configuration and was
 being used to plan run sets, so an SG on/off pair costs 1.6x a single run, not 1.1x.
 
+## Never make a queue depend on being woken up
+
+**Chain dependent runs inside one detached command. Do not launch stage 2 from a
+notification.** A staged plan — run A, look, then run B — must be written so that the
+machine executes the whole chain, because a notification that does not arrive, or arrives
+while the session is idle, silently ends the night's work. This has happened: A1 finished
+at ~01:00, the completion notice never woke the session, A1_nosg was never started, and a
+ten-hour window produced one run instead of three.
+
+The rule is not "watch more carefully". It is:
+
+```bash
+# right: the machine owns the sequence
+nohup sh -c './run A1 && ./analyse A1 && ./run A1_nosg && ./analyse A1_nosg' >queue.log 2>&1 &
+```
+
+A monitor may report progress, but nothing downstream may depend on the report being
+read. If a decision genuinely cannot be automated, run the conditional stage anyway when
+it is cheap — an unnecessary 1.3 h run costs far less than an unused 10 h window.
+
+Overnight work also gets a stated deadline and must leave the machine free at it. Say
+when each stage ends and what will still be running.
+
 ## Rules that came from being wrong
 
 **Measure before scaling.** Every performance choice here was made from a measurement,
