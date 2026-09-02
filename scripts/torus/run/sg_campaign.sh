@@ -31,7 +31,8 @@ for run in "${runs[@]}"; do
   # off at run time, and the pgen refuses the mismatch rather than run the wrong
   # experiment silently.
   bin="${repo}/bin/athena_sg"
-  [ "${run}" = "nosg" ] && bin="${repo}/bin/athena_nosg"
+  # any run whose name carries "nosg" is a control and needs the solverless binary
+  case "${run}" in *nosg*) bin="${repo}/bin/athena_nosg" ;; esac
 
   if [ ! -f "${dir}/athinput" ]; then
     echo "no input for '${run}'; generate it with scripts/torus/theory/torus_sg_model.py" >&2
@@ -47,9 +48,16 @@ for run in "${runs[@]}"; do
   # Raw output goes to <run>/data/ so that the run directory itself stays readable:
   # input, description and figures, not several hundred snapshots.
   mkdir -p "${dir}/data"
-  ( cd "${dir}/data" && OMP_NUM_THREADS="${threads}" "${bin}" -i ../athinput \
-        >> ../run.log 2>&1 )
-  touch "${dir}/done"
+  # A failed run must not cost the runs queued behind it, for the same reason a failed
+  # figure must not: the queue is the night's whole output and nobody is awake to restart
+  # it. The failure is reported and the directory is left without its "done" marker.
+  if ( cd "${dir}/data" && OMP_NUM_THREADS="${threads}" "${bin}" -i ../athinput \
+        >> ../run.log 2>&1 ); then
+    touch "${dir}/done"
+  else
+    echo "=== ${run}: FAILED $(date '+%F %T'), see ${dir}/run.log; queue continues" >&2
+    continue
+  fi
   echo "=== ${run}: finished $(date '+%F %T')"
 
   # Post-processing runs here rather than by hand afterwards. Every finished run then

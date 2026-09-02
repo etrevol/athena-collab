@@ -31,6 +31,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 // Athena++ headers
 #include "../athena.hpp"
@@ -84,6 +85,31 @@ namespace {
 
   // Density above which a cell counts as torus rather than ambient, for the diagnostics.
   Real rho_body;
+
+  // ---- Self-consistent equilibrium (SCF) -----------------------------------------
+  // The analytic shape function balances the gas against the central mass alone. At
+  // M_tor/M_c = 0.3 that omits a third of the gravity, and the torus spends its first
+  // ~30 orbits readjusting rather than evolving. These hold the iterated solution in
+  // which the enthalpy is balanced against the gas potential as well.
+  //
+  // The gas potential is computed here rather than taken from Multigrid because the
+  // solver is only called after ProblemGenerator has run, and because the control run
+  // has no solver at all yet must be able to start from the same state. At t = 0 the
+  // torus is axisymmetric, so the azimuthal integral of the Green's function is a
+  // complete elliptic integral and the whole problem collapses to a 2D quadrature.
+  int  scf_iter = 0;         // 0 = off, reproducing every run before this one
+  int  scf_nr = 200;         // table resolution in R (~3.5x the mesh)
+  int  scf_nz = 100;         // and in z, on the z >= 0 half plane
+  Real scf_relax = 0.7;      // under-relaxation between iterations
+  Real scf_tol = 1.0e-7;     // convergence on max|dPhi| / max|Phi|
+  Real scf_Rmax = 0.0, scf_Zmax = 0.0, scf_dR = 1.0, scf_dZ = 1.0;
+  std::vector<Real> scf_phi; // Phi_gas on the table, index k*(nr+1) + i
+  bool scf_on = false;
+  Real l0sq_eff = 0.0;       // rotation-law normalisation l_0^2, reset by the SCF
+  Real C_eff = 0.0;          // Bernoulli constant, likewise
+  int  scf_used = 0;         // iterations actually taken
+  Real scf_rin_an = 0.0, scf_rout_an = 0.0, scf_zt = 0.0;  // what it started from
+  Real scf_resid = 0.0;      // final relative change
 }
 
 void TorusGravity(MeshBlock *pmb, const Real time, const Real dt,
@@ -146,14 +172,82 @@ Real CentralPotential(Real x, Real y, Real z) {
 //! starts 24% out of equilibrium there. Consistency costs nothing, and it fixes the
 //! angular momentum normalisation too: l_0^2 = (1 + eps^2)^(-3/2) keeps the pressure
 //! maximum at R = R_tor = 1 exactly. Both reduce to the unsoftened forms at eps -> 0.
+
+//----------------------------------------------------------------------------------------
+//! Complete elliptic integral K(m), m = k^2, by the arithmetic-geometric mean. Quadratic
+//! convergence, so twenty steps is far more than the double precision can hold.
+Real EllipK(Real m) {
+  Real a = 1.0, b = std::sqrt(std::max(1.0 - m, 1.0e-18));
+  for (int i = 0; i < 20; ++i) {
+    Real an = 0.5 * (a + b);
+    Real bn = std::sqrt(a * b);
+    if (std::fabs(an - bn) <= 1.0e-15 * an) { a = an; b = bn; break; }
+    a = an; b = bn;
+  }
+  return PI / (a + b);
+}
+
+//! Potential at (R, z) of a unit-mass uniform ring of radius Rp in the plane z = zp.
+//! The azimuthal integral of 1/|r - r'| over the ring is the elliptic integral above.
+Real RingPotential(Real R, Real z, Real Rp, Real zp) {
+  Real d2 = (R + Rp) * (R + Rp) + (z - zp) * (z - zp);
+  if (d2 <= 0.0) return 0.0;
+  Real m = 4.0 * R * Rp / d2;
+  if (m > 1.0 - 1.0e-12) m = 1.0 - 1.0e-12;   // the log singularity is integrable
+  return -(2.0 / PI) * EllipK(m) / std::sqrt(d2);
+}
+
+//! The same for a finite cell, with the near field subdivided. K diverges logarithmically
+//! as the source approaches the target, so the midpoint rule is poor within a cell or two;
+//! everywhere else it is already converged and the subdivision would be wasted.
+Real CellPotential(Real R, Real z, Real Rp, Real zp, bool near) {
+  if (!near) return RingPotential(R, z, Rp, zp);
+  const int ns = 5;
+  Real s = 0.0, w = 0.0;
+  for (int a = 0; a < ns; ++a) {
+    Real Rs = Rp + scf_dR * ((a + 0.5) / ns - 0.5);
+    if (Rs <= 0.0) continue;
+    for (int b = 0; b < ns; ++b) {
+      Real zs = zp + scf_dZ * ((b + 0.5) / ns - 0.5);
+      s += Rs * RingPotential(R, z, Rs, zs);   // ring mass goes as R
+      w += Rs;
+    }
+  }
+  return (w > 0.0) ? s / w : RingPotential(R, z, Rp, zp);
+}
+
+//! Bilinear interpolation of the tabulated gas potential; a monopole outside the table,
+//! which the torus never reaches but the ambient does.
+Real PhiGas(Real R, Real z) {
+  if (!scf_on) return 0.0;
+  Real az = std::fabs(z);
+  if (R >= scf_Rmax || az >= scf_Zmax) {
+    Real r = std::sqrt(R * R + z * z);
+    return -M_tor / std::max(r, 1.0e-3);
+  }
+  Real fi = R / scf_dR, fk = az / scf_dZ;
+  int i = static_cast<int>(fi), k = static_cast<int>(fk);
+  if (i > scf_nr - 1) i = scf_nr - 1;
+  if (k > scf_nz - 1) k = scf_nz - 1;
+  Real ti = fi - i, tk = fk - k;
+  const int nrp = scf_nr + 1;
+  Real p00 = scf_phi[k*nrp + i],       p10 = scf_phi[k*nrp + i + 1];
+  Real p01 = scf_phi[(k+1)*nrp + i],   p11 = scf_phi[(k+1)*nrp + i + 1];
+  return (1.0 - tk) * ((1.0 - ti)*p00 + ti*p10)
+       +        tk  * ((1.0 - ti)*p01 + ti*p11);
+}
+
 Real ShapeFunction(Real R, Real z) {
   if (R <= 0.0) return -1.0;
-  Real l0sq = std::pow(1.0 + eps_soft*eps_soft, -1.5);
+  Real l0sq = scf_on ? l0sq_eff : std::pow(1.0 + eps_soft*eps_soft, -1.5);
+  Real Cst  = scf_on ? C_eff    : C_prime;
   return 1.0 / std::sqrt(R*R + z*z + eps_soft*eps_soft)
-         - l0sq * std::pow(R, 2.0*q_rot - 2.0) / (2.0 - 2.0*q_rot) - C_prime;
+         - PhiGas(R, z)
+         - l0sq * std::pow(R, 2.0*q_rot - 2.0) / (2.0 - 2.0*q_rot) - Cst;
 }
 
 Real TorusDensity(Real R, Real z) {
+  if (scf_on && (R < r_in || R > r_out)) return 0.0;
   Real Psi = ShapeFunction(R, z);
   if (Psi <= 0.0) return 0.0;
   return rho_c * std::pow(Psi / Psi_c, n_poly);
@@ -208,9 +302,198 @@ Real ModeNoise(Real x, Real y) {
 }
 
 Real TorusPressure(Real R, Real z) {
+  if (scf_on && (R < r_in || R > r_out)) return 0.0;
   Real Psi = ShapeFunction(R, z);
   if (Psi <= 0.0) return 0.0;
   return p_c * std::pow(Psi / Psi_c, n_poly + 1.0);
+}
+
+//----------------------------------------------------------------------------------------
+//! \brief Iterate the equilibrium against its own gravity.
+//!
+//! The torus is a polytrope, so the Bernoulli condition is
+//!
+//!     H(R,z) = -Phi_c - Phi_gas - l_0^2 R^(2q-2)/(2-2q) - C = 0  on the surface,
+//!     rho = rho_c (H/H_max)^n,   p = rho H / (n+1),
+//!
+//! and the analytic model is the special case Phi_gas = 0. Iterating it needs the gas
+//! potential, which is a two-dimensional quadrature while the torus is still
+//! axisymmetric: the azimuthal integral of the Green's function over a ring is the
+//! complete elliptic integral K.
+//!
+//! Two constants have to be redetermined at every step, and the choice of what to hold
+//! fixed is what the solution means. There are three shape descriptors - the two
+//! mid-plane edges and the half-thickness - and only two constants, so one of them has
+//! to be allowed to move. The two that are pinned here are the ones the comparison with
+//! the paper is actually made through:
+//!
+//!   * the density maximum stays at R = R_tor = 1. This is the unit of length and the
+//!     orbit that T_orb = 2 pi refers to, so every pattern speed quoted as a fraction of
+//!     Omega is measured against it. dH/dR = 0 there gives
+//!     l_0^2 = (1 + eps^2)^(-3/2) + dPhi_gas/dR, which reduces to the analytic value.
+//!
+//!   * the half-thickness z_max is unchanged. It is the analogue of their i_max, and the
+//!     campaign varies M_tor at fixed thickness on purpose - a thickness that drifted
+//!     with the mass would confound the two. The surface is tangent to z = z_max, so
+//!     C = max_R [ -Phi_c - Phi_gas - l_0^2 R^(2q-2)/(2-2q) ] evaluated at z = z_max,
+//!     which is again an explicit formula rather than a root find.
+//!
+//! Pinning the edges instead was tried and rejected: at M_tor/M_c = 0.3 it produced a
+//! torus 13% thicker with its density maximum at R = 1.13, i.e. it moved both of the
+//! quantities being compared. What moves here instead is r_in and r_out, which are
+//! recomputed and reported, and which the box has margin for.
+//!
+//! rho_c is then fixed by the mass integral, as before.
+//!
+//! Convergence is on max|dPhi|/max|Phi|; the returned H_max and rho_c replace the
+//! analytic Psi_c and rho_c in the caller.
+void SolveSelfConsistentEquilibrium(Real *Hmax_out, Real *rhoc_out) {
+  const int nr = scf_nr, nz = scf_nz, nrp = nr + 1, nzp = nz + 1;
+
+  // Vertical extent of the analytic torus, so the table covers it with room to spare.
+  Real z_est = 0.0;
+  for (int i = 1; i < 1200; ++i) {
+    Real R = r_in + (r_out - r_in) * i / 1200.0;
+    for (int k = 0; k < 1200; ++k) {
+      Real z = r_out * k / 1200.0;
+      if (ShapeFunction(R, z) > 0.0) z_est = std::max(z_est, z);
+    }
+  }
+  if (z_est <= 0.0) z_est = 0.5 * (r_out - r_in);
+  const Real z_target = z_est;      // the analytic half-thickness, held fixed
+  scf_rin_an = r_in; scf_rout_an = r_out; scf_zt = z_target;
+
+  scf_Rmax = 1.5 * r_out;
+  scf_Zmax = 2.0 * z_est;
+  scf_dR = scf_Rmax / nr;
+  scf_dZ = scf_Zmax / nz;
+  scf_phi.assign(nrp * nzp, 0.0);
+  scf_on = true;                   // PhiGas now reads the table, which is still zero
+
+  std::vector<Real> phi_new(nrp * nzp, 0.0), rho_tab(nrp * nzp, 0.0);
+  std::vector<Real> Rt(nrp), Zt(nzp), wr(nrp, 1.0), wz(nzp, 1.0);
+  for (int i = 0; i <= nr; ++i) Rt[i] = i * scf_dR;
+  for (int k = 0; k <= nz; ++k) Zt[k] = k * scf_dZ;
+  wr[0] = wr[nr] = 0.5;            // trapezoid on the half plane
+  wz[0] = wz[nz] = 0.5;
+
+  const Real gexp = 2.0 * q_rot - 2.0, gden = 2.0 - 2.0 * q_rot;
+  Real Hmax = 0.0, rho_c_scf = 0.0;
+
+  for (scf_used = 1; scf_used <= scf_iter; ++scf_used) {
+    // (a) rotation law: dH/dR = 0 at the density maximum, held at R = 1
+    Real hR = scf_dR;
+    Real dphidR = (PhiGas(1.0 + hR, 0.0) - PhiGas(1.0 - hR, 0.0)) / (2.0 * hR);
+    l0sq_eff = std::pow(1.0 + eps_soft*eps_soft, -1.5) + dphidR;
+
+    // (b) Bernoulli constant: the surface is tangent to z = z_target, so C is the
+    //     largest the rest of the enthalpy reaches on that plane.
+    C_eff = -1.0e30;
+    for (int i = 1; i <= 4000; ++i) {
+      Real R = scf_Rmax * i / 4000.0;
+      Real a = 1.0 / std::sqrt(R*R + z_target*z_target + eps_soft*eps_soft)
+               - PhiGas(R, z_target) - l0sq_eff * std::pow(R, gexp) / gden;
+      C_eff = std::max(C_eff, a);
+    }
+
+    // (b) the enthalpy, and the shape of the density
+    Hmax = 0.0;
+    for (int k = 0; k <= nz; ++k) {
+      for (int i = 0; i <= nr; ++i) {
+        Real R = Rt[i], z = Zt[k];
+        Real H = -1.0;
+        if (R > 0.0) {
+          H = 1.0 / std::sqrt(R*R + z*z + eps_soft*eps_soft) - PhiGas(R, z)
+              - l0sq_eff * std::pow(R, gexp) / gden - C_eff;
+        }
+        rho_tab[k*nrp + i] = (H > 0.0) ? H : 0.0;
+        Hmax = std::max(Hmax, H);
+      }
+    }
+    if (Hmax <= 0.0) {
+      std::stringstream msg;
+      msg << "### FATAL ERROR in sg_torus_m1.cpp" << std::endl
+          << "the self-consistent iteration produced no torus at all (H_max <= 0) on"
+          << std::endl << "step " << scf_used << ". M_tor = " << M_tor
+          << " is too large for this geometry." << std::endl;
+      ATHENA_ERROR(msg);
+    }
+
+    // (c) normalise to the requested mass
+    Real mhat = 0.0;
+    for (int k = 0; k <= nz; ++k) {
+      for (int i = 0; i <= nr; ++i) {
+        Real h = rho_tab[k*nrp + i];
+        if (h <= 0.0) continue;
+        rho_tab[k*nrp + i] = std::pow(h / Hmax, n_poly);
+        mhat += 2.0 * wr[i] * wz[k] * rho_tab[k*nrp + i]
+                * 2.0 * PI * Rt[i] * scf_dR * scf_dZ;   // factor 2: the z < 0 half
+      }
+    }
+    rho_c_scf = M_tor / mhat;
+    for (int m = 0; m < nrp*nzp; ++m) rho_tab[m] *= rho_c_scf;
+
+    // (d) the potential of that density. Only the occupied cells are sources.
+    std::vector<int> si, sk;
+    std::vector<Real> sdm;
+    for (int k = 0; k <= nz; ++k) {
+      for (int i = 0; i <= nr; ++i) {
+        Real rr = rho_tab[k*nrp + i];
+        if (rr <= 0.0 || Rt[i] <= 0.0) continue;
+        si.push_back(i); sk.push_back(k);
+        sdm.push_back(rr * wr[i] * wz[k] * 2.0 * PI * Rt[i] * scf_dR * scf_dZ);
+      }
+    }
+    const int ns = static_cast<int>(si.size());
+#pragma omp parallel for schedule(dynamic, 4)
+    for (int k = 0; k <= nz; ++k) {
+      for (int i = 0; i <= nr; ++i) {
+        Real R = Rt[i], z = Zt[k], acc = 0.0;
+        for (int m = 0; m < ns; ++m) {
+          int ip = si[m], kp = sk[m];
+          Real Rp = Rt[ip], zp = Zt[kp];
+          bool nr_up = (std::abs(i - ip) <= 1 && std::abs(k - kp) <= 1);
+          bool nr_dn = (std::abs(i - ip) <= 1 && (k + kp) <= 1);
+          acc += sdm[m] * (CellPotential(R, z, Rp,  zp, nr_up)
+                         + CellPotential(R, z, Rp, -zp, nr_dn));
+        }
+        phi_new[k*nrp + i] = acc;
+      }
+    }
+
+    // (e) under-relaxed update
+    Real dmax = 0.0, pmax = 0.0;
+    for (int m = 0; m < nrp*nzp; ++m) {
+      Real pn = phi_new[m];
+      dmax = std::max(dmax, std::fabs(pn - scf_phi[m]));
+      pmax = std::max(pmax, std::fabs(pn));
+      scf_phi[m] = (1.0 - scf_relax) * scf_phi[m] + scf_relax * pn;
+    }
+    scf_resid = (pmax > 0.0) ? dmax / pmax : 0.0;
+    if (scf_resid < scf_tol) break;
+  }
+  if (scf_used > scf_iter) scf_used = scf_iter;
+
+  // The mid-plane edges are an output now, not an input. Recompute them the same way
+  // the analytic ones were, so the guard in TorusDensity and the report agree with the
+  // solution rather than with the model it started from.
+  {
+    const int ns2 = 200000;
+    const Real lo = 1.0e-3, hi = 1.0e3;
+    bool found = false;
+    Real a = 1.0, b = 1.0;
+    for (int t = 0; t <= ns2; ++t) {
+      Real R = lo * std::pow(hi / lo, static_cast<Real>(t) / ns2);
+      Real H = 1.0 / std::sqrt(R*R + eps_soft*eps_soft) - PhiGas(R, 0.0)
+               - l0sq_eff * std::pow(R, gexp) / gden - C_eff;
+      if (H <= 0.0) continue;
+      if (!found) { a = R; found = true; }
+      b = R;
+    }
+    if (found) { r_in = a; r_out = b; }
+  }
+  *Hmax_out = Hmax;
+  *rhoc_out = rho_c_scf;
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
@@ -233,6 +516,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   use_indirect = pin->GetOrAddInteger("problem", "indirect", 1) != 0;
   pert_amp     = pin->GetOrAddReal("problem", "pert_amp", 1.0e-3);
   pert_mode_amp = pin->GetOrAddReal("problem", "pert_mode_amp", 0.0);
+  scf_iter      = pin->GetOrAddInteger("problem", "scf_iter", 0);
+  scf_nr        = pin->GetOrAddInteger("problem", "scf_nr", scf_nr);
+  scf_nz        = pin->GetOrAddInteger("problem", "scf_nz", scf_nz);
 
   bool want_self_grav = pin->GetOrAddInteger("problem", "self_grav", 1) != 0;
 
@@ -276,6 +562,19 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     if (!found) {   // Psi_c > 0 guarantees R = 1 is inside, so this cannot happen
       r_in = r_out = 1.0;
     }
+  }
+
+  // The self-consistent equilibrium, if asked for. It replaces the normalisation of the
+  // shape function, the rotation law and the central density; the geometry it was handed
+  // (r_in, r_out, and everything the generator derived from them) is held fixed.
+  Real Psi_c_an = Psi_c, rho_c_an = rho_c;
+  Real l0sq_an = std::pow(1.0 + eps_soft*eps_soft, -1.5);
+  if (scf_iter > 0) {
+    Real Hmax = 0.0, rhoc_new = 0.0;
+    SolveSelfConsistentEquilibrium(&Hmax, &rhoc_new);
+    Psi_c = Hmax;
+    rho_c = rhoc_new;
+    p_c   = rho_c * Psi_c / (n_poly + 1.0);
   }
 
   p_atm    = rho_atm * t_atm * Psi_c / (n_poly + 1.0);
@@ -386,6 +685,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
       << (SELF_GRAVITY_ENABLED ? "ON (Multigrid)" : "OFF (control run)") << std::endl
       << "  Indirect term:                  " << (use_indirect ? "ON" : "OFF")
       << std::endl
+      << "  Self-consistent IC (scf_iter):  "
+      << (scf_iter > 0 ? "ON" : "OFF (central mass only)") << std::endl
       << "  White-noise seed (pert_amp):    " << pert_amp << std::endl
       << "  Coherent low-m seed:            " << pert_mode_amp << std::endl
       << "  Alpha viscosity:                " << alpha_visc << std::endl
@@ -393,6 +694,49 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
       << "  Orbital period at R_tor:        " << 2.0 * PI << std::endl
       << "===========================================================" << std::endl
       << std::endl;
+    if (scf_iter > 0) {
+      std::cout
+        << "  --- self-consistent equilibrium ---------------------------" << std::endl
+        << "  iterations / residual:          " << scf_used << " / " << scf_resid
+        << "   (limit " << scf_iter << ", tol " << scf_tol << ")" << std::endl
+        << "  table (nR x nz), R_max, z_max:  " << scf_nr << " x " << scf_nz
+        << ", " << scf_Rmax << ", " << scf_Zmax << std::endl
+        << "  l_0^2   analytic -> SCF:        " << l0sq_an << " -> " << l0sq_eff
+        << "   (" << 100.0*(l0sq_eff/l0sq_an - 1.0) << " %)" << std::endl
+        << "  C       analytic -> SCF:        " << C_prime << " -> " << C_eff
+        << std::endl
+        << "  Psi_max analytic -> SCF:        " << Psi_c_an << " -> " << Psi_c
+        << "   (" << 100.0*(Psi_c/Psi_c_an - 1.0) << " %)" << std::endl
+        << "  rho_c   analytic -> SCF:        " << rho_c_an << " -> " << rho_c
+        << "   (" << 100.0*(rho_c/rho_c_an - 1.0) << " %)" << std::endl
+        << "  Phi_gas at (R_tor, 0):          " << PhiGas(1.0, 0.0)
+        << "   against Phi_c = "
+        << -GM_c/std::sqrt(1.0 + eps_soft*eps_soft) << std::endl
+        << "  rho_atm / rho_c:                " << rho_atm/rho_c << std::endl;
+      // What the iteration did to the shape. r_in and r_out are pinned by construction;
+      // the half-thickness and the position of the density maximum are not, and the
+      // comparison with the paper is made through the thickness (their i_max), so both
+      // are reported rather than assumed.
+      Real zmax_scf = 0.0, Rpk = 1.0, Hpk = -1.0;
+      for (int i = 1; i < 2000; ++i) {
+        Real R = r_in + (r_out - r_in) * i / 2000.0;
+        Real H0 = ShapeFunction(R, 0.0);
+        if (H0 > Hpk) { Hpk = H0; Rpk = R; }
+        for (int k = 0; k < 2000; ++k) {
+          Real z = r_out * k / 2000.0;
+          if (ShapeFunction(R, z) > 0.0) zmax_scf = std::max(zmax_scf, z);
+        }
+      }
+      std::cout
+        << "  half-thickness  target -> SCF:  " << scf_zt << " -> " << zmax_scf
+        << "   (" << 100.0*(zmax_scf/scf_zt - 1.0) << " %)" << std::endl
+        << "  density maximum at R:           " << Rpk
+        << "   (held at 1 by construction)" << std::endl
+        << "  r_in / r_out  analytic -> SCF:  " << scf_rin_an << " / " << scf_rout_an
+        << "  ->  " << r_in << " / " << r_out << std::endl
+        << "===========================================================" << std::endl
+        << std::endl;
+    }
   }
   return;
 }
@@ -436,7 +780,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         if (rho_t > 0.0) {
           // l = l_0 R^q, with l_0 set by the softened potential so that the pressure
           // maximum sits at R = R_tor = 1.
-          Real l0 = std::pow(1.0 + eps_soft*eps_soft, -0.75);
+          Real l0 = scf_on ? std::sqrt(l0sq_eff)
+                           : std::pow(1.0 + eps_soft*eps_soft, -0.75);
           Real v_phi = l0 * std::pow(R, q_rot - 1.0);
           vx = -v_phi * y / R;
           vy =  v_phi * x / R;
