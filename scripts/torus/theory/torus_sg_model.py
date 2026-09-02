@@ -582,8 +582,17 @@ def check(m, setup):
     row(g["L"] > m.r_out, "box encloses torus",
         f"L = {g['L']} > r_out = {m.r_out:.4f}, "
         f"{(g['L'] - m.r_out) / g['dx']:.0f} cells of margin")
-    row(g["cells_minor"] >= 24, "radial resolution",
-        f"{g['cells_minor']:.1f} cells across the minor diameter (want >= 24)",
+    # With scf_iter > 0 the equilibrium is solved for inside the pgen, and the torus
+    # contracts radially - measured, 15% at M_tor/M_c = 0.30 and 18% at 0.45, because
+    # self-gravity binds it while the thickness is held fixed. The numbers below are the
+    # analytic geometry, so the radial cell count is an upper bound; the vertical one is
+    # not, since the thickness is what the iteration pins. The margin is applied here so
+    # that a configuration which only passes on the analytic shape does not slip through.
+    scf_shrink = (1.0 - 0.4 * m.M_tor) if m.scf_iter > 0 else 1.0
+    row(g["cells_minor"] * scf_shrink >= 24, "radial resolution",
+        f"{g['cells_minor']:.1f} cells across the minor diameter (want >= 24)"
+        + (f"; the self-consistent torus is smaller, ~"
+           f"{g['cells_minor'] * scf_shrink:.1f} cells" if m.scf_iter > 0 else ""),
         hard=False)
     row(g["cells_vertical"] >= 16, "vertical resolution",
         f"{g['cells_vertical']:.1f} cells across the thickness (want >= 16); "
