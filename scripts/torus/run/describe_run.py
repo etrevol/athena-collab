@@ -52,8 +52,57 @@ def _f(d, key, default=None):
         return default
 
 
-def geometry(p):
-    """r_in, r_out, z_max and the paper's equivalent inclination, from the parameters."""
+def scf_report(run_dir):
+    """What the self-consistent iteration actually produced, read from run.log.
+
+    With scf_iter > 0 the equilibrium is no longer the analytic one, so recomputing the
+    geometry from the athinput would put the wrong edges, thickness and Psi_c into this
+    file - silently, and in a document whose whole purpose is that the numbers in it can
+    be trusted. The pgen prints what it solved for; this reads that back.
+    """
+    log = os.path.join(run_dir, "run.log")
+    if not os.path.isfile(log):
+        return None
+    txt = open(log, errors="replace").read()
+    if "self-consistent equilibrium" not in txt:
+        return None
+    def one(pat, n=1):
+        m = re.search(pat, txt)
+        if not m:
+            return None
+        return tuple(float(m.group(i + 1)) for i in range(n))
+    d = {}
+    v = one(r"r_in / r_out\s+analytic -> SCF:\s*([-\d.e+]+) / ([-\d.e+]+)"
+            r"\s*->\s*([-\d.e+]+) / ([-\d.e+]+)", 4)
+    if v:
+        d["r_in_an"], d["r_out_an"], d["r_in"], d["r_out"] = v
+    v = one(r"half-thickness\s+target -> SCF:\s*([-\d.e+]+) -> ([-\d.e+]+)", 2)
+    if v:
+        d["z_max_an"], d["z_max"] = v
+    v = one(r"Psi_max analytic -> SCF:\s*([-\d.e+]+) -> ([-\d.e+]+)", 2)
+    if v:
+        d["Psi_c_an"], d["Psi_c"] = v
+    v = one(r"rho_c\s+analytic -> SCF:\s*([-\d.e+]+) -> ([-\d.e+]+)", 2)
+    if v:
+        d["rho_c_an"], d["rho_c"] = v
+    v = one(r"l_0\^2\s+analytic -> SCF:\s*([-\d.e+]+) -> ([-\d.e+]+)", 2)
+    if v:
+        d["l0sq_an"], d["l0sq"] = v
+    v = one(r"Phi_gas at \(R_tor, 0\):\s*([-\d.e+]+)\s+against Phi_c = ([-\d.e+]+)", 2)
+    if v:
+        d["phi_gas"], d["phi_c"] = v
+    v = one(r"iterations / residual:\s*(\d+) / ([-\d.e+]+)", 2)
+    if v:
+        d["iters"], d["resid"] = v
+    return d or None
+
+
+def geometry(p, scf=None):
+    """r_in, r_out, z_max and the paper's equivalent inclination, from the parameters.
+
+    `scf` is the parsed output of the self-consistent iteration; when it is present it
+    is the truth and the analytic formulae below are only the starting point.
+    """
     C = _f(p, "C_prime")
     q = _f(p, "q_rot", 0.0)
     eps = _f(p, "eps_soft", 0.0)
@@ -77,9 +126,15 @@ def geometry(p):
         pz = Psi(r, z)
         if (pz > 0).any():
             zmax = max(zmax, z[pz > 0][-1])
+    Psi_c = float(Psi(1.0, 0.0))
+    if scf:
+        r_in = scf.get("r_in", r_in)
+        r_out = scf.get("r_out", r_out)
+        zmax = scf.get("z_max", zmax)
+        Psi_c = scf.get("Psi_c", Psi_c)
     e_max = 0.5                                    # their canonical eccentricity spread
     s_i = zmax / (1.0 + 0.5 * e_max)
-    return dict(r_in=r_in, r_out=r_out, z_max=zmax, Psi_c=float(Psi(1.0, 0.0)),
+    return dict(r_in=r_in, r_out=r_out, z_max=zmax, Psi_c=Psi_c,
                 i_max=float(np.degrees(np.arcsin(s_i))) if s_i <= 1.0 else float("nan"))
 
 
@@ -155,7 +210,8 @@ def trust(p, geo, res):
 
 def render(run_dir, purpose, problem_id="sg_torus_m1"):
     p = read_athinput(os.path.join(run_dir, "athinput"))
-    geo = geometry(p)
+    scf = scf_report(run_dir)
+    geo = geometry(p, scf)
     res = outcome(run_dir, problem_id)
     name = os.path.basename(os.path.normpath(run_dir))
     L = [f"# Run `{name}`", ""]
@@ -178,6 +234,9 @@ def render(run_dir, purpose, problem_id="sg_torus_m1"):
           f"| `M_tor` | {p.get('M_tor','?')} | torus mass in units of the central mass |",
           f"| self-gravity | **{sg}** | Poisson solver; off reproduces their Appendix C |",
           f"| `alpha` | {alpha:g} | viscosity; 0.01 is one cloud collision per ~16 orbits |",
+          f"| initial condition | "
+          f"{'self-consistent (scf_iter = ' + str(p.get('scf_iter')) + ')' if scf else 'analytic, central mass only'}"
+          " | whether the gas's own gravity is in the equilibrium |",
           f"| seed | white {p.get('pert_amp','0')}, coherent "
           f"{p.get('pert_mode_amp','0')} | coherent seeds m = 1..5 with random phases |",
           f"| grid | {p.get('mesh/nx1','?')}^3, box +-{p.get('x1max','?')} | "
@@ -192,6 +251,24 @@ def render(run_dir, purpose, problem_id="sg_torus_m1"):
               "(strong at 60, weak at 45, absent at 30)",
               f"- `Psi_c` = {geo['Psi_c']:.4f}  (pressure support; must stay positive)",
               ""]
+        if scf:
+            L += ["The equilibrium was iterated against the gas's own potential; the "
+                  "numbers above are the solution, not the analytic starting point.", "",
+                  "| quantity | analytic | self-consistent |",
+                  "|---|---|---|"]
+            for key, lab in (("r_in", "`r_in`"), ("r_out", "`r_out`"),
+                             ("z_max", "`z_max`"), ("Psi_c", "`Psi_c`"),
+                             ("rho_c", "`rho_c`"), ("l0sq", "`l_0^2`")):
+                if key in scf and key + "_an" in scf:
+                    L.append(f"| {lab} | {scf[key+'_an']:.4g} | {scf[key]:.4g} |")
+            if "phi_gas" in scf:
+                L += ["",
+                      f"Gas potential at the density maximum {scf['phi_gas']:.4f} against "
+                      f"{scf['phi_c']:.4f} from the central mass, i.e. "
+                      f"{100*abs(scf['phi_gas']/scf['phi_c']):.0f}% of it; "
+                      f"converged in {scf.get('iters', 0):.0f} iterations to "
+                      f"{scf.get('resid', float('nan')):.1e}."]
+            L += [""]
     if res:
         L += ["## Outcome", "",
               "| quantity | value |",
