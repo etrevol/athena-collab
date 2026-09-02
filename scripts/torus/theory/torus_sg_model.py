@@ -152,6 +152,15 @@ class TorusModel:
 
     self_gravity: bool = True  # False reproduces their Appendix C control
 
+    # Number of self-consistent-field iterations used to build the initial condition.
+    # 0 balances the gas against the central mass alone - correct to O(M_tor/M_c), which
+    # is a 30% error on the gravity branch and shows up as a virial transient lasting
+    # tens of orbits. 30 is comfortably past convergence (the residual falls below 1e-7
+    # in ~12 at M_tor/M_c = 0.3) and costs about a minute of startup. The iteration pins
+    # r_in and r_out, so every derived quantity below stays valid; what it changes is the
+    # rotation law and rho_c, both of which the pgen reports at startup.
+    scf_iter: int = 0
+
     _d: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
@@ -525,6 +534,7 @@ self_grav  = {1 if m.self_gravity else 0}           # 1 = torus self-gravity on
 indirect   = 1           # 1 = include the gas pull on the central mass (frame accel.)
 pert_amp      = {m.pert_amp:g}    # per-cell white-noise density seed
 pert_mode_amp = {m.pert_mode_amp:g}    # coherent seed per harmonic m = 1..5; 0 = off
+scf_iter      = {m.scf_iter:d}    # self-consistent-field iterations; 0 = central mass only
 
 nu_iso     = {nu_iso:g}           # isotropic kinematic viscosity; > 0 enables viscous fluxes
 alpha      = {m.alpha}         # Shakura-Sunyaev viscosity parameter
@@ -669,6 +679,9 @@ def main():
                           ("alpha", None), ("eps_soft", None), ("pert_amp", None),
                           ("q_rot", None), ("pert_mode_amp", None)):
         ap.add_argument("--" + name, type=float, default=default)
+    ap.add_argument("--scf_iter", type=int, default=None,
+                    help="self-consistent-field iterations for the initial condition; "
+                         "0 balances the gas against the central mass alone")
     ap.add_argument("--no-self-gravity", action="store_true",
                     help="their Appendix C control; needs a binary built without --grav")
     ap.add_argument("--nx", type=int, default=None)
@@ -679,7 +692,7 @@ def main():
 
     model_kw = {k: getattr(args, k) for k in
                 ("C_prime", "M_tor", "gamma", "alpha", "eps_soft", "pert_amp",
-                 "q_rot", "pert_mode_amp")
+                 "q_rot", "pert_mode_amp", "scf_iter")
                 if getattr(args, k) is not None}
     if args.no_self_gravity:
         model_kw["self_gravity"] = False
