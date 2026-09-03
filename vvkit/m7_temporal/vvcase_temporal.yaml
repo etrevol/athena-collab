@@ -74,6 +74,10 @@ mms:
     # collapses onto the steady M5 solution, which is the point: one generator
     # serves both, and the steady limit is a check rather than a coincidence.
     w: 1.0
+  # vel1, vel2 are signed by construction (a radial and an azimuthal velocity);
+  # checking them for positivity fires every run for no reason. rho and press stay
+  # checked, since those genuinely must not cross zero.
+  positivity_exclude: [vel1, vel2]
   domain:
     x: [1.0, 3.0]
     y: [0.0, 6.283185307179586]

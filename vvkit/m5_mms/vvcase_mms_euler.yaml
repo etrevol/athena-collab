@@ -55,6 +55,10 @@ mms:
 
   symbols:
     g: 1.6666666666666667
+  # vel1, vel2 are signed by construction (a radial and an azimuthal velocity);
+  # checking them for positivity fires every run for no reason. rho and press stay
+  # checked, since those genuinely must not cross zero.
+  positivity_exclude: [vel1, vel2]
 
   domain:
     x: [1.0, 3.0]
