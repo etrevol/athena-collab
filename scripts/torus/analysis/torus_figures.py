@@ -264,7 +264,7 @@ def growth(runs, out_path, fit_window=None, problem_id="sg_torus_m1"):
     colors = ("#1f77b4", "#d62728", "#2ca02c")
     text = []
     for (label, run), col in zip(runs, colors):
-        hst = os.path.join(run, f"{problem_id}.hst")
+        hst = os.path.join(data_dir(run), f"{problem_id}.hst")
         if not os.path.isfile(hst):
             continue
         d = load_history(hst)
@@ -362,7 +362,7 @@ def multiview(run_dir, out_path, max_orbit=None, fps=12, problem_id="sg_torus_m1
     keep = [fn for i, (_, fn) in enumerate(snaps)
             if max_orbit is None or i / per_orbit <= max_orbit]
 
-    hst = os.path.join(run_dir, f"{problem_id}.hst")
+    hst = os.path.join(data_dir(run_dir), f"{problem_id}.hst")
     d = load_history(hst) if os.path.isfile(hst) else None
 
     vmax = None
