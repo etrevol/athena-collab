@@ -4,7 +4,7 @@
 # ==============================================================================
 #
 #  USAGE (from repo root):
-#    bash scripts/practice/run/sweep.sh [--dry-run]
+#    bash scripts/practice/run/sweep.sh [--dry-run] [--tests FILE] [--name LABEL]
 #    bash scripts/practice/run/sweep.sh --resume [SWEEP_DIR]
 #    nohup bash scripts/practice/run/sweep.sh > /dev/null 2>&1 & echo $!
 #
@@ -144,7 +144,6 @@ INPUT_TEMPLATE="${REPO_DIR}/${INPUT_TEMPLATE}"
 RESULTS_BASE="${REPO_DIR}/${RESULTS_BASE}"
 
 SWEEP_LABEL="sweep-$(date +%Y%m%d-%H%M%S)"
-SWEEP_DIR="${RESULTS_BASE}/${SWEEP_LABEL}"
 
 DRY_RUN=0
 RESUME=0
@@ -152,6 +151,10 @@ RESUME_DIR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
+    # A file that (re)defines TESTS=( ... ), so a one-off matrix does not mean
+    # editing this script; a name keeps its results out of the dated sweeps.
+    --tests) source "$2"; shift ;;
+    --name)  SWEEP_LABEL="sweep-$2"; shift ;;
     --resume)
       RESUME=1
       # an optional path may follow; anything starting with - is the next flag
@@ -161,6 +164,7 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+SWEEP_DIR="${RESULTS_BASE}/${SWEEP_LABEL}"
 
 if [[ "$RESUME" -eq 1 ]]; then
   if [[ -z "$RESUME_DIR" ]]; then
