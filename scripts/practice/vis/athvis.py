@@ -390,15 +390,15 @@ def read_hst(data_dir):
 # left out here, since importing scripts/theory/disk_model.py would break the
 # no-cross-file-imports point of this script; the raw athinput values are not.
 # =============================================================================
-INFO_KEYS = ["alpha", "nu_iso", "gamma", "C_prime", "r_center", "rho_atm",
+INFO_KEYS = ["alpha", "nu_iso", "gamma", "C_prime", "r_center", "q", "rho_atm",
             "M_bh", "T_0", "mu", "chi", "grid", "hr", "N_orbits"]
 INFO_PRESETS = {
     "none": [],
-    "default": ["alpha", "gamma", "grid", "C_prime", "r_center"],
+    "default": ["alpha", "gamma", "grid", "C_prime", "r_center", "q"],
     "min": ["alpha", "nu_iso", "gamma", "grid"],
-    "physics": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "rho_atm",
+    "physics": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "q", "rho_atm",
                 "hr", "N_orbits"],
-    "full": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "rho_atm",
+    "full": ["alpha", "nu_iso", "gamma", "grid", "C_prime", "r_center", "q", "rho_atm",
             "hr", "N_orbits", "M_bh", "T_0", "mu", "chi"],
 }
 
@@ -463,7 +463,7 @@ def _derived_orbits_to_accrete(alpha, gamma, c_prime):
     return 1.0 / (2.0 * math.pi * alpha * hr * hr)
 _ATH_LOOKUP = {"alpha": "problem/alpha", "nu_iso": "problem/nu_iso",
               "gamma": "hydro/gamma", "C_prime": "problem/C_prime",
-              "r_center": "problem/r_center", "rho_atm": "problem/rho_atm",
+              "r_center": "problem/r_center", "q": "problem/q", "rho_atm": "problem/rho_atm",
               "M_bh": "problem/M_bh", "T_0": "problem/T_0", "mu": "problem/mu",
               "chi": "problem/chi"}
 
@@ -547,9 +547,9 @@ def model_info_lines(params, spec):
                 items.append(f"{n_orb:.0f} orbits to accrete")
             continue
         v = g(_ATH_LOOKUP[key])
-        if v is None:
+        if v is None or (key == "q" and v == 0):    # l = const is the default law
             continue
-        label = {"C_prime": "C'", "r_center": "$r_c$", "rho_atm": r"$\rho_{\rm atm}$",
+        label = {"C_prime": "C'", "r_center": "$r_c$", "q": "q", "rho_atm": r"$\rho_{\rm atm}$",
                  "M_bh": r"$M_{\rm BH}$", "T_0": "$T_0$", "mu": r"$\mu$",
                  "chi": r"$\chi$", "alpha": r"$\alpha$", "nu_iso": r"$\nu_{\rm iso}$",
                  "gamma": r"$\gamma$"}[key]

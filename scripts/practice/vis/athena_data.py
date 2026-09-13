@@ -581,6 +581,7 @@ INFO_KEYS = {
     "gamma":     (r"$\gamma$",               "hydro/gamma"),
     "C_prime":   ("C'",                      "problem/C_prime"),
     "r_center":  (r"$r_c$",                  "problem/r_center"),
+    "q":         ("q",                       "problem/q"),   # shown only when != 0
     "rho_atm":   (r"$\rho_{\rm atm}$",       "problem/rho_atm"),
     "M_bh":      (r"$M_{\rm BH}$",           "problem/M_bh"),
     "T_0":       (r"$T_0$",                  "problem/T_0"),
@@ -593,13 +594,13 @@ INFO_KEYS = {
 
 INFO_PRESETS = {
     "none":    [],
-    "default": ["alpha", "gamma", "grid", "C_prime", "r_center"],
+    "default": ["alpha", "gamma", "grid", "C_prime", "r_center", "q"],
     "min":     ["alpha", "nu_iso", "gamma", "grid"],
     "orbits":  ["alpha", "nu_iso", "gamma", "grid"],
     "physics": ["alpha", "nu_iso", "gamma", "grid",
-                "C_prime", "r_center", "rho_atm", "hr", "N_orbits"],
+                "C_prime", "r_center", "q", "rho_atm", "hr", "N_orbits"],
     "full":    ["alpha", "nu_iso", "gamma", "grid",
-                "C_prime", "r_center", "rho_atm", "hr", "N_orbits",
+                "C_prime", "r_center", "q", "rho_atm", "hr", "N_orbits",
                 "M_bh", "T_0", "mu", "chi"],
 }
 # Presets that also want the frame counter expressed in orbits.
@@ -672,7 +673,7 @@ def model_info(params, level="default"):
             return (f"{derived['N_orbits']:.0f} {label}"
                     if "N_orbits" in derived else None)
         v = g(path)
-        if v is None:
+        if v is None or (key == "q" and v == 0):    # l = const is the default law
             return None
         if key == "M_bh":
             return rf"{label} = {v:.3g} $M_\odot$"
