@@ -166,6 +166,7 @@ matplotlib.use('Agg')  # Non-interactive backend for faster rendering
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.colors import LogNorm, Normalize, LinearSegmentedColormap
+from matplotlib.ticker import MaxNLocator
 from matplotlib import cm
 import warnings
 warnings.filterwarnings('ignore')
@@ -1167,6 +1168,30 @@ def plot_radial_profiles(data, frame_num, output_dir):
     plt.close()
     print(f"    Saved: {filename}")
 
+def thin_radial_labels(axes, fig):
+    """Drop radial tick labels until neighbours no longer overlap.
+
+    Matplotlib picks the r ticks from the data range, not from the panel size, so a
+    small polar panel with r in [0.3, 4] gets eight labels stacked along one ray.
+    Measure the rendered labels; only if two touch, ask for fewer ticks and check
+    again. Panels whose labels already fit are left exactly as they were.
+    """
+    fig.canvas.draw()
+    for ax in axes:
+        nbins = None
+        for _ in range(8):
+            boxes = [t.get_window_extent() for t in ax.yaxis.get_ticklabels()
+                     if t.get_visible() and t.get_text()]
+            boxes.sort(key=lambda b: b.y0)
+            if not any(a.overlaps(b) for a, b in zip(boxes, boxes[1:])):
+                break
+            nbins = (len(boxes) if nbins is None else nbins) - 1
+            if nbins < 2:
+                break
+            ax.yaxis.set_major_locator(MaxNLocator(nbins=nbins))
+            fig.canvas.draw()
+
+
 def plot_polar(data, frame_num, output_dir):
     """Polar plots for disk"""
     print(f"  Creating polar plots for frame {frame_num}...")
@@ -1212,6 +1237,7 @@ def plot_polar(data, frame_num, output_dir):
     if CONFIG.get('vectors'):
         fig.text(0.5, 0.012, vector_caption(),
                  ha='center', fontsize=11)
+    thin_radial_labels([a for a in fig.axes if a.name == 'polar'], fig)
     plt.tight_layout()
     filename = os.path.join(output_dir, f"polar_frame_{frame_num:05d}.png")
     plt.savefig(filename, dpi=CONFIG['dpi'], bbox_inches='tight')
@@ -1537,6 +1563,8 @@ def create_polar_animation(available_frames, frames_dict, output_dir):
         ims.append(im)
         cbars.append(cbar)
 
+    thin_radial_labels(axes, fig)
+
     # Frame 0 is the initial condition with v = 0, so scale the arrows off the last
     # frame instead; otherwise quiver locks in a scale derived from nothing.
     _scale_ref = filter_data_by_bounds(read_athena_2d(frames_dict[frames_subset[-1]]),
@@ -1623,6 +1651,7 @@ def create_vector_animation(available_frames, frames_dict, output_dir):
     cb.set_label(r'$\rho$', fontsize=11)
     art = overlay_vectors(ax, first, polar=True, add_key=True, scale_from=ref)
     ax.grid(True, alpha=0.3)
+    thin_radial_labels([ax], fig)
     fig.text(0.5, 0.035 + info_footer_height("vector"), vector_caption(),
              ha='center', fontsize=12)
     time_text = fig.text(0.5, 0.93, '', ha='center', fontsize=12, fontweight='bold')
