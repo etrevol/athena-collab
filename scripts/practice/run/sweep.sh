@@ -181,7 +181,8 @@ fi
 
 # Global PID of currently running Athena++ (for Ctrl+C cleanup)
 CURRENT_ATHENA_PID=""
-ALL_TEST_DIRS=()   # populated as tests are launched
+ALL_TEST_DIRS=()   # every test of the matrix, for the report
+RAN_TEST_DIRS=()   # only the tests this invocation actually ran, for post-processing
 
 # ── UTILITIES ─────────────────────────────────────────────────────────────────
 
@@ -839,6 +840,9 @@ for i in "${!TESTS[@]}"; do
       info "Test ${test_num}/${#TESTS[@]}: ${dir_name} - already COMPLETED, skipping"
       continue
     fi
+  fi
+  RAN_TEST_DIRS+=("$test_dir")
+  if [[ "$RESUME" -eq 1 ]]; then
     # newest .rst in this test's data/. *.final.rst (written when athena hits a
     # -t wall limit) sorts alongside the periodic dumps and -t picks whichever
     # was written last, which is what we want either way.
@@ -916,7 +920,9 @@ sep
 info "Post-processing: running vis2d.py + vishst.py for each test..."
 echo ""
 
-for tdir in "${ALL_TEST_DIRS[@]}"; do
+# Only the tests run now: on --resume the skipped ones already have their figures,
+# and redrawing a thousand frames per test is the slowest step of the whole sweep.
+for tdir in "${RAN_TEST_DIRS[@]}"; do
   local_vis="${tdir}/vis2d.py"
   local_vishst="${tdir}/vishst.py"
   local_data="${tdir}/data"
