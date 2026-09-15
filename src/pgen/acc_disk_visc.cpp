@@ -1,8 +1,5 @@
 //========================================================================================
-// Papaloizou-Pringle torus with alpha viscosity. Cylindrical (r, phi), 2D.
-//
-// A constant-angular-momentum torus superposed on a centrifugally balanced ambient
-// medium; v_phi follows from exact radial force balance, so the surface is continuous.
+// Papaloizou-Pringle torus with alpha-viscosity. Cylindrical (r, phi), 2.5D.
 //========================================================================================
 
 // C++ headers
@@ -28,7 +25,7 @@ namespace {
   const Real C_LIGHT = 2.99792458e10;  // Speed of light [cm/s]
   const Real K_B     = 1.380649e-16;   // Boltzmann constant [erg/K]
   const Real M_P     = 1.67262192e-24; // Proton mass [g]
-  const Real G_GRAV  = 6.67430e-8;     // Gravitational constant [cm^3/(g·s^2)]
+  const Real G_GRAV  = 6.67430e-8;     // Gravitational constant [cm^3/(g s^2)]
   const Real M_SUN   = 1.98841e33;     // Solar mass [g]
   const Real YR_TO_S = 3.15576e7;      // Year to seconds conversion
 
@@ -52,7 +49,7 @@ namespace {
   Real r_inner;      // Inner disk geometric boundary
   Real r_outer;      // Outer disk geometric boundary
 
-  // Ambient medium ("atmosphere") -- a genuine equilibrium state, NOT the floor
+  // Ambient medium: a balanced background, distinct from the floors
   Real rho_atm;      // Ambient density
   Real cs2_atm;      // Ambient p/rho
   Real p_atm;        // Ambient pressure
@@ -88,41 +85,39 @@ void OuterX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                    FaceField &b, Real time, Real dt,
                    int il, int iu, int jl, int ju, int kl, int ku, int ngh);
 
-//----------------------------------------------------------------------------------------
-//! Geometric shape function f(r) of the Papaloizou-Pringle torus.
+// Shape function f(r) of the torus.
 Real DiskFunction(Real r) {
   Real x = r_center / r;
   return x - 0.5 * x * x - C_prime;
 }
 
-//! d f / d r
+// df/dr
 Real DiskFunctionDeriv(Real r) {
   return -r_center / (r * r) + r_center * r_center / (r * r * r);
 }
 
-//! Torus density (identically zero outside the torus surface f <= 0).
+// Torus density; zero outside the surface f <= 0.
 Real DiskDensity(Real r) {
   Real f = DiskFunction(r);
   if (f <= 0.0) return 0.0;
   return std::pow(f / f_center, n_poly);
 }
 
-//! Torus pressure (identically zero outside the torus surface).
+// Torus pressure; zero outside the surface.
 Real DiskPressure(Real r) {
   Real f = DiskFunction(r);
   if (f <= 0.0) return 0.0;
   return p_norm * std::pow(f, n_poly + 1.0);
 }
 
-//! d p_torus / d r  (identically zero outside the torus surface).
+// dp_torus/dr; zero outside the surface.
 Real DiskPressureDeriv(Real r) {
   Real f = DiskFunction(r);
   if (f <= 0.0) return 0.0;
   return p_norm * (n_poly + 1.0) * std::pow(f, n_poly) * DiskFunctionDeriv(r);
 }
 
-//----------------------------------------------------------------------------------------
-//! v_phi^2 from radial force balance; l = const inside the torus, Keplerian outside.
+// v_phi^2 from radial force balance: l = const inside the torus, Keplerian outside.
 Real EquilibriumVphi2(Real r) {
   Real rho = DiskDensity(r) + rho_atm;
   Real v2 = beta_param / r + (r / rho) * DiskPressureDeriv(r);
@@ -164,7 +159,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   // Dimensionless gravity parameter
   beta_param = (C_LIGHT * C_LIGHT) / (2.0 * chi_param * cs0_sq);
 
-  // Exact geometric disk boundaries
+  // Disk boundaries r_inner, r_outer
   Real discriminant = 1.0 - 2.0 * C_prime;
   if (discriminant < 0.0) {
     std::stringstream msg;
@@ -179,13 +174,13 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   f_center = 0.5 - C_prime;
   p_norm   = beta_param / (r_center * (n_poly + 1.0) * std::pow(f_center, n_poly));
 
-  // Ambient medium: an equilibrium state kept well above the floors so they never activate.
+  // Ambient medium: balanced background, above the floors
   rho_atm = pin->GetOrAddReal("problem", "rho_atm", 1.0e-6);
   Real t_atm_frac = pin->GetOrAddReal("problem", "t_atm_frac", 1.0);
   cs2_atm = t_atm_frac * beta_param * f_center / (r_center * (n_poly + 1.0));
   p_atm   = rho_atm * cs2_atm;
 
-  // Viscosity is tapered off in the ambient, removing artificial torque at the boundaries.
+  // Viscosity tapers to zero in the ambient, so the boundaries carry no torque
   visc_rho_cut = pin->GetOrAddReal("problem", "visc_rho_cut", 10.0 * rho_atm);
 
   if (rho_atm <= rho_floor || p_atm <= press_floor) {
@@ -198,14 +193,14 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
 
   // Athena++ gates ViscousFluxIso on nu_iso, so alpha > 0 with nu_iso = 0 runs inviscid.
-  // Mirror trap: nu_iso > 0 with alpha = 0 applies a CONSTANT nu, it is not inviscid.
+  // Conversely nu_iso > 0 with alpha = 0 applies a constant nu; not inviscid either.
   if (alpha_visc <= 0.0 && nu_iso > 0.0 && Globals::my_rank == 0) {
     std::cout << std::endl
               << "  *** WARNING: alpha = 0 but nu_iso = " << nu_iso << " > 0." << std::endl
               << "      This is NOT an inviscid run: Athena++ will apply a constant"
               << std::endl
               << "      kinematic viscosity nu = " << nu_iso << " everywhere." << std::endl
-              << "      Set nu_iso = 0 for a genuinely inviscid control run." << std::endl
+              << "      Set nu_iso = 0 for an inviscid control run." << std::endl
               << std::endl;
   }
 
@@ -222,7 +217,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     ATHENA_ERROR(msg);
   }
 
-  // The torus surface must stay interior; on a boundary the outflow condition is ill-posed.
+  // The torus surface must lie inside the domain; on a boundary outflow drains the disk
   if (Globals::my_rank == 0
       && (mesh_size.x1min >= r_inner || mesh_size.x1max <= r_outer)) {
     std::cout << std::endl
@@ -231,9 +226,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
               << r_inner << std::endl
               << "      x1max = " << mesh_size.x1max << " must be > r_outer = "
               << r_outer << std::endl
-              << "      Placing the torus surface on the boundary makes the outflow"
-              << std::endl
-              << "      condition ill-posed and drains the disk." << std::endl << std::endl;
+              << "      A torus surface on the boundary drains the disk." << std::endl
+              << std::endl;
   }
 
   // Output model parameters to console
@@ -294,7 +288,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   for (int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
       for (int i=is; i<=ie; ++i) {
-        // Volume-centroid radius: the same radius Athena++'s geometric source term uses.
+        // Volume-centroid radius, as in the geometric source term
         Real r = pcoord->x1v(i);
 
         Real rho   = DiskDensity(r)  + rho_atm;
@@ -322,10 +316,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   return;
 }
 
-//----------------------------------------------------------------------------------------
-//! \brief Point-mass gravity, using the same geometric factor as Athena++'s cylindrical
-//!        source term so that a balanced ambient medium is an exact discrete equilibrium.
-//!        Energy follows the numerical mass flux, not the cell-centred rho*v_r.
+// Point-mass gravity with the geometric factor of the cylindrical source term, so a
+// balanced ambient is a discrete equilibrium. Energy uses the mass flux, not rho*v_r.
 void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
                  const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                  const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
@@ -349,7 +341,7 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
                            * ( x1flux(IDN,k,j,i)   / (rv * rm)
                              + x1flux(IDN,k,j,i+1) / (rv * rp) );
 
-        // Safety net, before SEND_HYD: pressure violations correct the energy only.
+        // Floor repair before SEND_HYD; a pressure violation corrects the energy only
         Real &d = cons(IDN,k,j,i);
         if (!std::isfinite(d) || d < rho_floor) {
           Real v_phi_atm = std::sqrt(beta_param / rv);
@@ -373,9 +365,7 @@ void NewtonianGravity(MeshBlock *pmb, const Real time, const Real dt,
   return;
 }
 
-//----------------------------------------------------------------------------------------
-//! \brief Alpha viscosity nu = alpha*(gamma/sqrt(beta))*(p/rho)*r^(3/2), tapered to zero
-//!        in the ambient medium to avoid an artificial torque at the boundaries.
+// Alpha viscosity nu = alpha*(gamma/sqrt(beta))*(p/rho)*r^(3/2); zero in the ambient.
 void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
                    const AthenaArray<Real> &prim, const AthenaArray<Real> &bcc,
                    int is, int ie, int js, int je, int ks, int ke) {
@@ -390,7 +380,7 @@ void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
         Real rho = prim(IDN,k,j,i);
         Real press = prim(IPR,k,j,i);
 
-        // Smooth density weight: ~1 in the disk body, ~0 in the ambient medium.
+        // Density weight: ~1 in the disk body, ~0 in the ambient
         Real w = (cut2 > 0.0) ? (rho*rho / (rho*rho + cut2)) : 1.0;
 
         // nu = alpha * (gamma/sqrt(beta)) * (p/rho) * r^(3/2)
@@ -403,9 +393,7 @@ void DiskViscosity(HydroDiffusion *phdif, MeshBlock *pmb,
   return;
 }
 
-//----------------------------------------------------------------------------------------
-//! Mass of the disk body only [M_sun]. The uniform ambient medium is subtracted so that
-//! this diagnostic tracks the torus rather than the numerical background.
+// Mass of the disk body [M_sun]; the ambient is excluded.
 Real TotalDiskMass(MeshBlock *pmb, int iout) {
   Real mass_sum = 0.0;
   const Real rho_cut = 2.0 * rho_atm;
@@ -425,9 +413,8 @@ Real TotalDiskMass(MeshBlock *pmb, int iout) {
   return mass_sum * mass_scale;
 }
 
-//----------------------------------------------------------------------------------------
-//! Mass accretion rate [M_sun/yr] through the inner boundary (positive = inflow).
-//! Only the MeshBlock owning that boundary contributes, tested against the mesh geometry.
+// Mass flux through the inner boundary [M_sun/yr], positive inward; counted by the
+// MeshBlock that owns the boundary.
 Real AccretionRate(MeshBlock *pmb, int iout) {
   Real mdot_sum = 0.0;
 
@@ -456,6 +443,8 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   SetUserOutputVariableName(3, "f_sum");
 }
 
+// Radial force balance per unit mass, written as uov: gravity, centrifugal, pressure
+// gradient and their sum.
 void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
   for (int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
@@ -465,13 +454,13 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
         Real press = phydro->w(IPR,k,j,i);
         Real v_phi = phydro->w(IVY,k,j,i);
 
-        // Gravitational force per unit mass (radial)
+        // Gravity
         Real f_grav = -beta_param / (r * r);
 
-        // Centrifugal force per unit mass (cylindrical coords)
+        // Centrifugal
         Real f_centr = v_phi * v_phi / r;
 
-        // Pressure gradient force per unit mass: -(1/rho) * dP/dr
+        // Pressure gradient -(1/rho) dp/dr, centred away from the block edges
         Real dPdr;
         if (i > is && i < ie) {
           Real r_p = pcoord->x1v(i+1);
@@ -490,7 +479,7 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
         }
         Real f_press = -(1.0 / std::max(rho, rho_floor)) * dPdr;
 
-        // 4. Net radial force
+        // Net radial force
         Real f_sum = f_grav + f_centr + f_press;
 
         user_out_var(0,k,j,i) = f_grav;
@@ -502,9 +491,8 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin) {
   }
 }
 
-//----------------------------------------------------------------------------------------
-//! \brief Inner radial boundary: zero-gradient rho and p, diode in v_r (outflow only),
-//!        v_phi extrapolated as r^(-1/2) so the ghost zones stay centrifugally balanced.
+// Inner radial boundary: zero-gradient rho and p, v_r <= 0 only, v_phi ~ r^(-1/2) so the
+// ghost zones stay balanced.
 void InnerX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                    FaceField &b, Real time, Real dt,
                    int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
@@ -523,8 +511,7 @@ void InnerX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
   return;
 }
 
-//----------------------------------------------------------------------------------------
-//! \brief Outer radial boundary: same construction, diode reversed (v_r >= 0).
+// Outer radial boundary: as the inner, with v_r >= 0.
 void OuterX1OutflowBC(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                    FaceField &b, Real time, Real dt,
                    int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
