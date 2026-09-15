@@ -26,7 +26,6 @@ TEMPLATE = """\
 <comment>
 problem   = Papaloizou-Pringle torus with alpha-viscosity
 configure = --prob=acc_disk_visc --coord=cylindrical
-generated = scripts/theory/make_athinput.py
 
 <job>
 problem_id = acc_disk_visc  # basename of output filenames
