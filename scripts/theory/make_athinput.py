@@ -24,7 +24,7 @@ from disk_model import DiskModel, orbits_to_accrete
 
 TEMPLATE = """\
 <comment>
-problem   = Thermally-scaled Papaloizou-Pringle accretion disk with alpha viscosity
+problem   = Papaloizou-Pringle torus with alpha-viscosity
 configure = --prob=acc_disk_visc --coord=cylindrical
 generated = scripts/theory/make_athinput.py
 
