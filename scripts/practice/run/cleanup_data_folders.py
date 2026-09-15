@@ -24,7 +24,7 @@ Usage
 Examples
 --------
     # clean everything except the newest sweep, keeping the history files
-    cleanup_data_folders.py results -x sweep-20260728-103026
+    cleanup_data_folders.py results -x sweep-20260728-103026-alpha3-mu2.3
 
     # see what would go, without touching anything
     cleanup_data_folders.py results -n
